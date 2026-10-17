@@ -1,0 +1,247 @@
+name: chat_reply_agent 中文聊天核心评测集
+version: "0.12.1"
+
+# 文本样本直接使用 messages 运行分析和回复流程。
+# 如需评测截图识别，可增加 image_path；此时 messages 会作为人工标注答案。
+cases:
+  - id: friend_daily_game
+    name: 朋友间随口聊游戏
+    relation_type: friend
+    messages:
+      - speaker: me
+        side: right
+        text: 这游戏最近是不是又更新了
+      - speaker: other
+        side: left
+        text: 对啊 但感觉跟没更一样
+    expected:
+      scenario_types: [daily_chat]
+      max_reply_chars: 28
+      forbidden_phrases: [确实如此, 关于这件事]
+      reference_replies:
+        - 笑死，那更新了个寂寞
+        - 我就说怎么没啥感觉
+        - 行，那先不急着回坑
+      notes: 重点是顺着吐槽，不需要认真分析游戏版本。
+
+  - id: friend_comfort_work
+    name: 朋友工作受挫
+    relation_type: friend
+    messages:
+      - speaker: other
+        side: left
+        text: 今天汇报被老板当着一屋子人批了
+      - speaker: other
+        side: left
+        text: 真有点绷不住
+    expected:
+      scenario_types: [comfort]
+      max_reply_chars: 32
+      forbidden_phrases: [你要保持积极, 这也是一种成长]
+      reference_replies:
+        - 当着那么多人确实挺难受的
+        - 换我也得缓一会儿
+        - 先骂两句，我听着
+      notes: 先站在朋友这边，不急着讲道理。
+
+  - id: colleague_deadline
+    name: 同事确认交付时间
+    relation_type: colleague
+    messages:
+      - speaker: other
+        side: left
+        text: 那版数据今天下班前能给吗
+    expected:
+      scenario_types: [work_coordination]
+      max_reply_chars: 36
+      forbidden_phrases: [尽快, 应该可以]
+      reference_replies:
+        - 可以，五点前发你
+        - 还差一部分，我六点前给你
+        - 今天赶不完，明早十点前可以
+      notes: 工作回复需要明确进度或时间，避免含糊承诺。
+
+  - id: colleague_request_refusal
+    name: 同事临时加活
+    relation_type: colleague
+    messages:
+      - speaker: other
+        side: left
+        text: 这个能不能也帮我今天一起做了
+      - speaker: me
+        side: right
+        text: 我手上还有两个今天要交的
+      - speaker: other
+        side: left
+        text: 很快的 不会占多久
+    expected:
+      scenario_types: [refusal, work_coordination, boundary]
+      max_reply_chars: 40
+      forbidden_phrases: [没问题, 我尽量]
+      reference_replies:
+        - 今天确实排不开，明天我再看
+        - 我先把手上两个交了，这个今天接不了
+        - 你要是着急，可以先问下其他人
+      notes: 要拒绝得清楚，同时保留协作态度。
+
+  - id: family_boundary_checkin
+    name: 家人频繁追问行程
+    relation_type: family
+    messages:
+      - speaker: other
+        side: left
+        text: 怎么还不回来 到哪了
+      - speaker: other
+        side: left
+        text: 发个定位给我
+    expected:
+      scenario_types: [boundary, daily_chat]
+      max_reply_chars: 36
+      forbidden_phrases: [请尊重我的隐私, 我的边界]
+      reference_replies:
+        - 还在路上，到家跟你说
+        - 快到了，别担心哈
+        - 我安全着呢，晚点回去
+      notes: 既让家人放心，也不把边界说成正式声明。
+
+  - id: family_comfort_health
+    name: 家人检查前紧张
+    relation_type: family
+    messages:
+      - speaker: other
+        side: left
+        text: 明天去复查 心里还是有点怕
+    expected:
+      scenario_types: [comfort]
+      max_reply_chars: 32
+      forbidden_phrases: [一定没事, 不要胡思乱想]
+      reference_replies:
+        - 怕也正常，我明天陪你去
+        - 先别自己吓自己，有我呢
+        - 嗯，我陪着你
+      notes: 不做医疗保证，给具体陪伴更有用。
+
+  - id: lover_committed_conflict
+    name: 恋人因失联生气
+    relation_type: lover_committed
+    messages:
+      - speaker: other
+        side: left
+        text: 一下午不回消息 现在又跟没事人一样
+      - speaker: other
+        side: left
+        text: 算了 不想说了
+    expected:
+      scenario_types: [conflict, cold_distance]
+      max_reply_chars: 36
+      forbidden_phrases: [你也没问我, 我又不是故意的, 你冷静一下]
+      reference_replies:
+        - 是我不好，刚刚不该装没事
+        - 你生气有道理，我刚才确实没顾到你
+        - 先别算了，这事我得跟你说清楚
+      notes: 先承认具体问题，不急着为自己辩解。
+
+  - id: lover_committed_apology
+    name: 恋人主动道歉
+    relation_type: lover_committed
+    messages:
+      - speaker: other
+        side: left
+        text: 刚才说话太冲了 对不起
+      - speaker: other
+        side: left
+        text: 我不是想凶你
+    expected:
+      scenario_types: [apology]
+      max_reply_chars: 32
+      forbidden_phrases: [我接受你的道歉, 希望下次注意]
+      reference_replies:
+        - 嗯，我知道你不是故意的
+        - 好啦，刚才我也有点急
+        - 抱一下，这篇翻过去
+      notes: 给台阶但不要端着审判对方。
+
+  - id: pursuing_invitation
+    name: 暧昧期轻松邀约
+    relation_type: lover_pursuing
+    messages:
+      - speaker: other
+        side: left
+        text: 你不是一直想吃那家火锅吗
+      - speaker: other
+        side: left
+        text: 周末有空的话可以去
+    expected:
+      scenario_types: [invitation, flirting]
+      max_reply_chars: 32
+      forbidden_phrases: [约会, 终于愿意见我了]
+      reference_replies:
+        - 有啊，那周六去？
+        - 可以，我正好还惦记着
+        - 行，你定时间还是我定
+      notes: 可以推进，但不要自作多情地定义成约会。
+
+  - id: pursuing_flirting
+    name: 暧昧期被轻轻夸奖
+    relation_type: lover_pursuing
+    messages:
+      - speaker: me
+        side: right
+        text: 今天这身是不是有点太正式了
+      - speaker: other
+        side: left
+        text: 不会啊 挺好看的
+    expected:
+      scenario_types: [flirting, daily_chat]
+      max_reply_chars: 24
+      forbidden_phrases: [你是不是喜欢我, 那我只穿给你看]
+      reference_replies:
+        - 那我当你夸我了
+        - 行，被你认证了
+        - 你这么说我就放心了
+      notes: 接住暧昧即可，不要突然过度亲密。
+
+  - id: pursuing_cold_distance
+    name: 暧昧期对方明显没空
+    relation_type: lover_pursuing
+    messages:
+      - speaker: me
+        side: right
+        text: 晚上要不要一起吃饭
+      - speaker: other
+        side: left
+        text: 最近有点忙 再说吧
+    expected:
+      scenario_types: [refusal, cold_distance]
+      max_reply_chars: 28
+      forbidden_phrases: [你是不是不想见我, 那算了, 什么时候有空]
+      reference_replies:
+        - 好，你先忙
+        - 行，等你空点再说
+        - 没事，不急这一顿
+      notes: 留出空间，不追问也不赌气。
+
+  - id: friend_repeated_text_speakers
+    name: 相同文本由双方分别发送
+    relation_type: friend
+    messages:
+      - speaker: me
+        side: right
+        text: 其实差不多
+      - speaker: other
+        side: left
+        text: 其实差不多
+      - speaker: other
+        side: left
+        text: 以前的都能用
+      - speaker: me
+        side: right
+        text: 是的
+    expected:
+      scenario_types: [daily_chat]
+      max_reply_chars: 28
+      reference_replies:
+        - 那就先用以前的
+        - 行，能用就不用折腾了
+        - 那还挺省事
+      notes: 预留给截图评测；重点检查相同文字不能导致说话人合并或错位。

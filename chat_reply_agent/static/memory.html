@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>记忆与风格 - 奇遇聊天助手</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #1f2937;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        width: min(1120px, calc(100% - 32px));
+        margin: 30px auto 48px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 8px;
+        font-size: 30px;
+      }
+
+      h2 {
+        margin-bottom: 14px;
+        font-size: 20px;
+      }
+
+      h3 {
+        margin-bottom: 5px;
+        font-size: 16px;
+      }
+
+      .subtitle,
+      .meta {
+        color: #667085;
+      }
+
+      .subtitle {
+        margin-bottom: 12px;
+      }
+
+      .meta {
+        font-size: 13px;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: 18px;
+        color: #175cd3;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .panel {
+        min-width: 0;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 18px;
+        background: #fff;
+      }
+
+      .account-bar {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto;
+        gap: 12px;
+        align-items: end;
+        margin-bottom: 16px;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .content-stack {
+        display: grid;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      label {
+        display: grid;
+        gap: 7px;
+        min-width: 0;
+        color: #344054;
+        font-weight: 650;
+      }
+
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+
+      input[type="text"],
+      select,
+      textarea {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 10px 11px;
+        background: #fff;
+        color: #1f2937;
+      }
+
+      input:disabled {
+        background: #f9fafb;
+        color: #667085;
+      }
+
+      textarea {
+        min-height: 84px;
+        resize: vertical;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #98a2b3;
+        cursor: wait;
+      }
+
+      .secondary {
+        border: 1px solid #d0d5dd;
+        background: #fff;
+        color: #344054;
+      }
+
+      .danger {
+        border: 1px solid #fda29b;
+        background: #fff;
+        color: #b42318;
+      }
+
+      .small-button {
+        padding: 6px 9px;
+        font-size: 13px;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .full-width {
+        grid-column: 1 / -1;
+      }
+
+      .actions,
+      .section-heading,
+      .search-row,
+      .style-add-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .actions {
+        margin-top: 14px;
+      }
+
+      .section-heading {
+        justify-content: space-between;
+      }
+
+      .section-heading h2 {
+        margin-bottom: 0;
+      }
+
+      .search-row,
+      .style-add-row {
+        margin: 14px 0;
+      }
+
+      .search-row input,
+      .style-add-row input {
+        flex: 1 1 220px;
+      }
+
+      .contact-list,
+      .memory-list,
+      .style-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .contact-list {
+        margin: 0 -8px;
+      }
+
+      .contact-item {
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 11px 10px;
+        background: transparent;
+        color: #1f2937;
+        text-align: left;
+      }
+
+      .contact-item:hover,
+      .contact-item.selected {
+        background: #eff6ff;
+      }
+
+      .contact-item.selected {
+        color: #175cd3;
+      }
+
+      .contact-name {
+        display: block;
+        margin-bottom: 3px;
+        font-weight: 750;
+      }
+
+      .list-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: start;
+        border-top: 1px solid #eef2f7;
+        padding: 13px 0;
+      }
+
+      .list-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .list-row:last-child {
+        padding-bottom: 0;
+      }
+
+      .row-title {
+        margin-bottom: 4px;
+        font-weight: 700;
+      }
+
+      .empty {
+        border: 1px dashed #d0d5dd;
+        border-radius: 8px;
+        padding: 20px;
+        color: #667085;
+        text-align: center;
+      }
+
+      .notice {
+        display: none;
+        margin-bottom: 16px;
+        border: 1px solid #b2ddff;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #eff8ff;
+        color: #175cd3;
+      }
+
+      .notice.visible {
+        display: block;
+      }
+
+      .notice.error {
+        border-color: #fecdca;
+        background: #fff3f0;
+        color: #b42318;
+      }
+
+      .style-toolbar {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto;
+        gap: 12px;
+        align-items: end;
+      }
+
+      .automatic-style-profile {
+        margin: 14px 0;
+        border-top: 1px solid #eef2f7;
+        border-bottom: 1px solid #eef2f7;
+        padding: 14px 0;
+      }
+
+      .automatic-style-profile p:last-child {
+        margin-bottom: 0;
+      }
+
+      .style-phrase-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0;
+      }
+
+      .style-phrase {
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        padding: 5px 8px;
+        background: #f9fafb;
+        color: #344054;
+        font-size: 13px;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          margin-top: 20px;
+        }
+
+        .workspace,
+        .account-bar,
+        .style-toolbar,
+        .form-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .full-width {
+          grid-column: auto;
+        }
+
+        .list-row {
+          grid-template-columns: 1fr;
+        }
+
+        .list-row .small-button {
+          justify-self: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>记忆与风格</h1>
+      <p class="subtitle">查看并管理聊天助手保存在本机 SQLite 中的个性化数据。</p>
+      <a class="back-link" href="/">返回聊天助手</a>
+
+      <div id="notice" class="notice" role="status"></div>
+
+      <section class="panel account-bar">
+        <label>
+          我的账号 ID
+          <input id="user-id" type="text" value="default" maxlength="64" />
+        </label>
+        <button id="reload-button" type="button">读取本地数据</button>
+      </section>
+
+      <div class="workspace">
+        <aside class="panel">
+          <h2>联系人</h2>
+          <div id="contact-list" class="contact-list"></div>
+        </aside>
+
+        <div class="content-stack">
+          <section id="contact-empty" class="panel empty">选择一个联系人查看记忆。</section>
+
+          <section id="contact-editor" class="panel" hidden>
+            <div class="section-heading">
+              <h2>联系人记忆</h2>
+              <span id="contact-updated" class="meta"></span>
+            </div>
+            <form id="contact-form">
+              <div class="form-grid">
+                <label>
+                  聊天对象 ID
+                  <input name="contact_id" type="text" disabled />
+                </label>
+                <label>
+                  对方备注
+                  <input name="contact_name" type="text" maxlength="64" />
+                </label>
+                <label>
+                  关系类型
+                  <select name="relation_type">
+                    <option value="lover_committed">恋人（已在一起）</option>
+                    <option value="lover_pursuing">追求/暧昧中</option>
+                    <option value="colleague">同事</option>
+                    <option value="family">家人</option>
+                    <option value="friend">朋友</option>
+                  </select>
+                </label>
+                <label>
+                  最近话题
+                  <input name="last_topic" type="text" maxlength="120" />
+                </label>
+                <label class="full-width">
+                  联系人概要
+                  <textarea name="summary" maxlength="240"></textarea>
+                </label>
+                <label class="full-width">
+                  已知事实（每行一条，最多 8 条）
+                  <textarea name="facts" maxlength="720"></textarea>
+                </label>
+                <label class="full-width">
+                  互动偏好（每行一条，最多 5 条）
+                  <textarea name="interaction_preferences" maxlength="450"></textarea>
+                </label>
+                <label>
+                  上次场景
+                  <input name="last_scenario" type="text" maxlength="64" />
+                </label>
+              </div>
+              <div class="actions">
+                <button type="submit">保存修改</button>
+                <button id="delete-contact" class="danger" type="button">删除这个联系人的全部记忆</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="history-panel" class="panel" hidden>
+            <div class="section-heading">
+              <h2>历史片段</h2>
+              <span id="history-count" class="meta"></span>
+            </div>
+            <div class="search-row">
+              <input id="memory-query" type="text" maxlength="1000" placeholder="按话题搜索，例如：周末火锅" />
+              <button id="search-memory" class="secondary" type="button">搜索</button>
+            </div>
+            <div id="memory-list" class="memory-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="style-toolbar">
+              <label>
+                说话风格按关系分别保存
+                <select id="style-relation">
+                  <option value="lover_committed">恋人（已在一起）</option>
+                  <option value="lover_pursuing">追求/暧昧中</option>
+                  <option value="colleague">同事</option>
+                  <option value="family">家人</option>
+                  <option value="friend">朋友</option>
+                </select>
+              </label>
+              <button id="reset-style" class="danger" type="button">重置这类关系的风格</button>
+            </div>
+            <div class="automatic-style-profile">
+              <h3>自动学习到的本人语气</h3>
+              <p id="automatic-style-summary">暂无自动画像。</p>
+              <div id="automatic-style-examples" class="style-phrase-list"></div>
+              <p class="meta">只累计聊天中校对为“我”的消息；对方和未知说话人的文字不会用于学习。</p>
+            </div>
+            <h3>采纳与手动样本</h3>
+            <p id="style-summary" class="meta"></p>
+            <div class="style-add-row">
+              <input id="style-text" type="text" maxlength="80" placeholder="添加一句你平时真的会发的话" />
+              <button id="add-style" type="button">添加样本</button>
+            </div>
+            <div id="style-list" class="style-list"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const relationLabels = {
+        lover_committed: "恋人（已在一起）",
+        lover_pursuing: "追求/暧昧中",
+        colleague: "同事",
+        family: "家人",
+        friend: "朋友",
+      };
+      const sourceLabels = {
+        accepted: "采纳",
+        edited: "手动改写",
+        manual: "手动添加",
+      };
+
+      const userIdInput = document.querySelector("#user-id");
+      const notice = document.querySelector("#notice");
+      const contactList = document.querySelector("#contact-list");
+      const contactEmpty = document.querySelector("#contact-empty");
+      const contactEditor = document.querySelector("#contact-editor");
+      const contactForm = document.querySelector("#contact-form");
+      const historyPanel = document.querySelector("#history-panel");
+      const memoryList = document.querySelector("#memory-list");
+      const styleRelation = document.querySelector("#style-relation");
+      const styleList = document.querySelector("#style-list");
+      const automaticStyleSummary = document.querySelector("#automatic-style-summary");
+      const automaticStyleExamples = document.querySelector("#automatic-style-examples");
+      let contacts = [];
+      let selectedContactId = "";
+
+      document.querySelector("#reload-button").addEventListener("click", () => {
+        selectedContactId = "";
+        loadDashboard();
+      });
+      userIdInput.addEventListener("change", () => {
+        selectedContactId = "";
+        loadDashboard();
+      });
+      contactList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-contact-id]");
+        if (button) selectContact(button.dataset.contactId);
+      });
+      contactForm.addEventListener("submit", saveContactMemory);
+      document.querySelector("#delete-contact").addEventListener("click", deleteContactMemory);
+      document.querySelector("#search-memory").addEventListener("click", loadMemories);
+      document.querySelector("#memory-query").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          loadMemories();
+        }
+      });
+      memoryList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-memory-id]");
+        if (button) deleteMemoryEpisode(Number(button.dataset.memoryId));
+      });
+      styleRelation.addEventListener("change", loadStyleExamples);
+      document.querySelector("#add-style").addEventListener("click", addStyleExample);
+      document.querySelector("#style-text").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          addStyleExample();
+        }
+      });
+      styleList.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-style-id]");
+        if (button) deleteStyleExample(Number(button.dataset.styleId));
+      });
+      document.querySelector("#reset-style").addEventListener("click", resetStyleData);
+
+      loadDashboard();
+
+      async function loadDashboard() {
+        clearNotice();
+        await loadContacts();
+        if (!selectedContactId) {
+          await loadStyleExamples();
+        }
+      }
+
+      async function loadContacts(preferredId = selectedContactId) {
+        contactList.innerHTML = '<div class="empty">正在读取联系人...</div>';
+        try {
+          const response = await fetch(`/api/contacts?user_id=${encodeURIComponent(userId())}`);
+          if (!response.ok) throw new Error(await readError(response));
+          contacts = (await response.json()).contacts || [];
+          renderContacts();
+          const nextId = contacts.some((item) => item.contact_id === preferredId)
+            ? preferredId
+            : contacts[0]?.contact_id || "";
+          if (nextId) {
+            await selectContact(nextId);
+          } else {
+            selectedContactId = "";
+            contactEmpty.hidden = false;
+            contactEmpty.textContent = "还没有联系人记忆。回到聊天助手生成一轮并勾选保存后，这里会出现记录。";
+            contactEditor.hidden = true;
+            historyPanel.hidden = true;
+          }
+        } catch (error) {
+          contacts = [];
+          contactList.innerHTML = '<div class="empty">联系人读取失败</div>';
+          showNotice(`读取失败：${error.message}`, true);
+        }
+      }
+
+      function renderContacts() {
+        if (!contacts.length) {
+          contactList.innerHTML = '<div class="empty">暂无联系人</div>';
+          return;
+        }
+        contactList.innerHTML = contacts.map((contact) => `
+          <button class="contact-item ${contact.contact_id === selectedContactId ? "selected" : ""}" type="button" data-contact-id="${escapeHtml(contact.contact_id)}">
+            <span class="contact-name">${escapeHtml(contact.contact_name || contact.contact_id)}</span>
+            <span class="meta">${escapeHtml(contact.contact_id)} · ${escapeHtml(relationLabels[contact.relation_type] || contact.relation_type)}</span>
+          </button>
+        `).join("");
+      }
+
+      async function selectContact(contactId) {
+        selectedContactId = contactId;
+        renderContacts();
+        contactEmpty.hidden = true;
+        contactEditor.hidden = false;
+        historyPanel.hidden = false;
+        try {
+          const response = await fetch(`/api/contacts/${encodeURIComponent(contactId)}/memory?user_id=${encodeURIComponent(userId())}`);
+          if (!response.ok) throw new Error(await readError(response));
+          const contact = await response.json();
+          fillContactForm(contact);
+          styleRelation.value = contact.relation_type in relationLabels ? contact.relation_type : "friend";
+          await Promise.all([loadMemories(), loadStyleExamples()]);
+        } catch (error) {
+          showNotice(`联系人记忆读取失败：${error.message}`, true);
+        }
+      }
+
+      function fillContactForm(contact) {
+        contactForm.elements.contact_id.value = contact.contact_id;
+        contactForm.elements.contact_name.value = contact.contact_name || "";
+        contactForm.elements.relation_type.value = contact.relation_type in relationLabels
+          ? contact.relation_type
+          : "friend";
+        contactForm.elements.summary.value = contact.summary || "";
+        contactForm.elements.facts.value = (contact.facts || []).join("\n");
+        contactForm.elements.interaction_preferences.value = (contact.interaction_preferences || []).join("\n");
+        contactForm.elements.last_topic.value = contact.last_topic || "";
+        contactForm.elements.last_scenario.value = contact.last_scenario || "";
+      }
+
+      async function saveContactMemory(event) {
+        event.preventDefault();
+        if (!selectedContactId) return;
+        const submit = contactForm.querySelector('[type="submit"]');
+        setBusy(submit, true, "保存中...");
+        try {
+          const response = await fetch(`/api/contacts/${encodeURIComponent(selectedContactId)}/memory`, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              user_id: userId(),
+              contact_name: contactForm.elements.contact_name.value.trim(),
+              relation_type: contactForm.elements.relation_type.value,
+              summary: contactForm.elements.summary.value.trim(),
+              facts: lines(contactForm.elements.facts.value, 8),
+              interaction_preferences: lines(contactForm.elements.interaction_preferences.value, 5),
+              last_topic: contactForm.elements.last_topic.value.trim(),
+              last_scenario: contactForm.elements.last_scenario.value.trim(),
+            }),
+          });
+          if (!response.ok) throw new Error(await readError(response));
+          const saved = await response.json();
+          fillContactForm(saved);
+          styleRelation.value = saved.relation_type;
+          await loadContacts(saved.contact_id);
+          showNotice("联系人记忆已更新。下一次生成会使用修改后的内容。");
+        } catch (error) {
+          showNotice(`保存失败：${error.message}`, true);
+        } finally {
+          setBusy(submit, false, "保存修改");
+        }
+      }
+
+      async function deleteContactMemory() {
+        if (!selectedContactId) return;
+        const contact = contacts.find((item) => item.contact_id === selectedContactId);
+        const name = contact?.contact_name || selectedContactId;
+        if (!confirm(`确定删除“${name}”的联系人概要和全部历史片段吗？此操作不能撤销。`)) return;
+        try {
+          const response = await fetch(`/api/contacts/${encodeURIComponent(selectedContactId)}/memory?user_id=${encodeURIComponent(userId())}`, {method: "DELETE"});
+          if (!response.ok) throw new Error(await readError(response));
+          const data = await response.json();
+          selectedContactId = "";
+          await loadContacts();
+          showNotice(`已删除联系人记忆和 ${data.deleted_memory_episodes} 条历史片段。`);
+        } catch (error) {
+          showNotice(`删除失败：${error.message}`, true);
+        }
+      }
+
+      async function loadMemories() {
+        if (!selectedContactId) return;
+        memoryList.innerHTML = '<div class="empty">正在读取历史片段...</div>';
+        const query = document.querySelector("#memory-query").value.trim();
+        try {
+          const response = await fetch(`/api/contacts/${encodeURIComponent(selectedContactId)}/memories?user_id=${encodeURIComponent(userId())}&query=${encodeURIComponent(query)}&limit=10`);
+          if (!response.ok) throw new Error(await readError(response));
+          const memories = (await response.json()).memories || [];
+          document.querySelector("#history-count").textContent = `${memories.length} 条`;
+          renderMemories(memories);
+        } catch (error) {
+          memoryList.innerHTML = '<div class="empty">历史片段读取失败</div>';
+          showNotice(`读取失败：${error.message}`, true);
+        }
+      }
+
+      function renderMemories(memories) {
+        if (!memories.length) {
+          memoryList.innerHTML = '<div class="empty">没有匹配的历史片段</div>';
+          return;
+        }
+        memoryList.innerHTML = memories.map((item) => `
+          <div class="list-row">
+            <div>
+              <div class="row-title">${escapeHtml(item.topic || item.scenario_label || "历史聊天")}</div>
+              <div>${escapeHtml(item.summary || "暂无概要")}</div>
+              <div class="meta">${escapeHtml(formatDate(item.created_at))}${item.relevance_score ? ` · 相关度 ${item.relevance_score}%` : ""}</div>
+              ${item.similarity_score != null && item.time_decay_factor != null ? `<div class="meta">${item.similarity_method === "semantic" ? "语义相似度" : item.similarity_method === "lexical_fallback" ? "关键词匹配（回退）" : "关键词匹配"} ${(item.similarity_score * 100).toFixed(1)}% × 时间权重 ${(item.time_decay_factor * 100).toFixed(1)}%</div>` : ""}
+            </div>
+            <button class="danger small-button" type="button" data-memory-id="${item.id}">删除</button>
+          </div>
+        `).join("");
+      }
+
+      async function deleteMemoryEpisode(memoryId) {
+        if (!confirm("确定删除这条历史片段吗？")) return;
+        try {
+          const response = await fetch(`/api/contacts/${encodeURIComponent(selectedContactId)}/memories/${memoryId}?user_id=${encodeURIComponent(userId())}`, {method: "DELETE"});
+          if (!response.ok) throw new Error(await readError(response));
+          await loadMemories();
+          showNotice("历史片段已删除，之后不会再被召回。");
+        } catch (error) {
+          showNotice(`删除失败：${error.message}`, true);
+        }
+      }
+
+      async function loadStyleExamples() {
+        styleList.innerHTML = '<div class="empty">正在读取风格样本...</div>';
+        try {
+          const response = await fetch(`/api/style/examples?user_id=${encodeURIComponent(userId())}&relation_type=${encodeURIComponent(styleRelation.value)}`);
+          if (!response.ok) throw new Error(await readError(response));
+          const data = await response.json();
+          automaticStyleSummary.textContent = data.automatic_summary || "暂无自动画像。";
+          automaticStyleExamples.innerHTML = (data.automatic_examples || [])
+            .map((text) => `<span class="style-phrase">${escapeHtml(text)}</span>`)
+            .join("");
+          document.querySelector("#style-summary").textContent = data.summary || "暂无已保存的真实表达样本。";
+          renderStyleExamples(data.examples || []);
+        } catch (error) {
+          styleList.innerHTML = '<div class="empty">风格样本读取失败</div>';
+          showNotice(`读取失败：${error.message}`, true);
+        }
+      }
+
+      function renderStyleExamples(examples) {
+        if (!examples.length) {
+          styleList.innerHTML = '<div class="empty">暂无样本，可以手动添加一句你平时会发的话。</div>';
+          return;
+        }
+        styleList.innerHTML = examples.map((item) => `
+          <div class="list-row">
+            <div>
+              <div class="row-title">${escapeHtml(item.text)}</div>
+              <div class="meta">${escapeHtml(sourceLabels[item.source] || item.source)}${item.created_at ? ` · ${escapeHtml(formatDate(item.created_at))}` : ""}</div>
+            </div>
+            <button class="danger small-button" type="button" data-style-id="${item.id}">删除</button>
+          </div>
+        `).join("");
+      }
+
+      async function addStyleExample() {
+        const input = document.querySelector("#style-text");
+        const text = input.value.trim();
+        if (!text) {
+          showNotice("先写一句你平时真的会发的话。", true);
+          return;
+        }
+        try {
+          const response = await fetch("/api/style/examples", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({user_id: userId(), relation_type: styleRelation.value, text}),
+          });
+          if (!response.ok) throw new Error(await readError(response));
+          input.value = "";
+          await loadStyleExamples();
+          showNotice("风格样本已添加，下一次生成会参考这句话的表达习惯。");
+        } catch (error) {
+          showNotice(`添加失败：${error.message}`, true);
+        }
+      }
+
+      async function deleteStyleExample(exampleId) {
+        if (!confirm("确定删除这条风格样本吗？")) return;
+        try {
+          const response = await fetch(`/api/style/examples/${exampleId}?user_id=${encodeURIComponent(userId())}&relation_type=${encodeURIComponent(styleRelation.value)}`, {method: "DELETE"});
+          if (!response.ok) throw new Error(await readError(response));
+          await loadStyleExamples();
+          showNotice("风格样本已删除。");
+        } catch (error) {
+          showNotice(`删除失败：${error.message}`, true);
+        }
+      }
+
+      async function resetStyleData() {
+        const label = relationLabels[styleRelation.value] || styleRelation.value;
+        if (!confirm(`确定清空“${label}”下的风格样本、反馈偏好和自动风格档案吗？`)) return;
+        try {
+          const response = await fetch(`/api/style/data?user_id=${encodeURIComponent(userId())}&relation_type=${encodeURIComponent(styleRelation.value)}`, {method: "DELETE"});
+          if (!response.ok) throw new Error(await readError(response));
+          const data = await response.json();
+          await loadStyleExamples();
+          showNotice(`已重置：${data.deleted_examples} 条样本、${data.deleted_feedback} 条反馈。`);
+        } catch (error) {
+          showNotice(`重置失败：${error.message}`, true);
+        }
+      }
+
+      function userId() {
+        return userIdInput.value.trim() || "default";
+      }
+
+      function lines(value, limit) {
+        return Array.from(new Set(value.split("\n").map((item) => item.trim()).filter(Boolean))).slice(0, limit);
+      }
+
+      function setBusy(button, busy, label) {
+        button.disabled = busy;
+        button.textContent = label;
+      }
+
+      function showNotice(message, isError = false) {
+        notice.textContent = message;
+        notice.classList.add("visible");
+        notice.classList.toggle("error", isError);
+        window.scrollTo({top: 0, behavior: "smooth"});
+      }
+
+      function clearNotice() {
+        notice.textContent = "";
+        notice.className = "notice";
+      }
+
+      async function readError(response) {
+        const text = await response.text();
+        try {
+          const data = JSON.parse(text);
+          if (Array.isArray(data.detail)) {
+            return data.detail.map((item) => item.msg).join("；");
+          }
+          return data.detail || text;
+        } catch {
+          return text || `请求失败 (${response.status})`;
+        }
+      }
+
+      function formatDate(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("zh-CN", {hour12: false});
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+    </script>
+  </body>
+</html>

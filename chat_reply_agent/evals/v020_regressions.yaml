@@ -1,0 +1,39 @@
+name: v0.20 定位与纠偏对照
+version: "0.20.0"
+source:
+  kind: user_provided_screenshot
+  note: 聊天原文来自用户提供的 2026-06-16 21.07.03 微信截图；候选问题句与参考改写为人工构造的复现样例，不是历史模型实际输出。截图未复制入项目。
+cases:
+  - id: real_friend_game_crossplay
+    name: 真实聊天：国际服充值与联机
+    relation_type: friend
+    messages:
+      - {speaker: me, side: right, text: "其实我为了在iOS上玩 差点下了个国际服 但我觉得充了钱不能跟你联机玩没意思"}
+      - {speaker: me, side: right, text: "差不了多少"}
+      - {speaker: other, side: left, text: "差不了多少"}
+      - {speaker: other, side: left, text: "以前的都能用"}
+      - {speaker: me, side: right, text: "是的"}
+      - {speaker: me, side: right, text: "也就二十张吧"}
+      - {speaker: other, side: left, text: "我还能小试一下"}
+    expected:
+      scenario_types: [daily_chat]
+      max_reply_chars: 30
+      forbidden_phrases: [我理解你的感受, 我们可以慢慢沟通, 我来帮你充值]
+      reference_replies:
+        - 那你先试试，能联机再叫我
+        - 行，看看以前那个还能不能用
+        - 先试下吧，能一起玩再说
+      notes: 真实上下文；以上参考回复为人工撰写，不是用户已发送的消息。不把二十张擅自解释成确定金额，不替用户承诺充值。
+normalization_checks:
+  - id: long_but_specific
+    input: 我主要是想和你一起玩，国际服能不能联机还不确定，所以先别急着充值，等你试完能不能一起玩，再决定要不要买。
+    reference: 先试下能不能联机，别急着充
+    issue: 内容偏长但有具体上下文；应保留给质检压缩，不替换成无关短句。
+  - id: broad_phrase_false_positive
+    input: 如果你愿意试就试试，能联机再说
+    reference: 那你试试，能联机再说
+    issue: 包含“如果你愿意”不代表应该丢掉“联机”这一关键信息。
+  - id: stiff_care
+    input: 我理解你的感受，我们可以慢慢沟通，找到适合彼此的游戏方式
+    reference: 那你先试试，能联机再叫我
+    issue: 咨询式套话接不上对方的尝试意愿；应由质检做有上下文的最小改写。

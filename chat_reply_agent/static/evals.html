@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>回复评测 · 奇遇聊天助手</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #1f2937;
+      }
+      body { margin: 0; }
+      main { width: min(1080px, calc(100% - 32px)); margin: 28px auto 48px; }
+      a { color: #175cd3; text-decoration: none; }
+      h1 { margin: 8px 0; font-size: 30px; }
+      h2, h3 { margin: 0 0 10px; }
+      .subtitle, .meta { color: #667085; }
+      .toolbar, .panel, .result-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #fff;
+      }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px; margin: 20px 0 14px; }
+      button { border: 0; border-radius: 8px; padding: 10px 14px; background: #2563eb; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+      button.secondary { border: 1px solid #d0d5dd; background: #fff; color: #344054; }
+      button:disabled { background: #98a2b3; cursor: wait; }
+      .panel { overflow: hidden; }
+      .case-row { display: grid; grid-template-columns: 32px 1fr 140px 170px 100px; gap: 10px; align-items: center; padding: 12px 14px; border-top: 1px solid #eef2f7; }
+      .case-row:first-child { border-top: 0; }
+      .case-row:hover { background: #f9fafb; }
+      .badge { display: inline-flex; width: fit-content; border: 1px solid #d0d5dd; border-radius: 999px; padding: 3px 8px; color: #475467; font-size: 12px; font-weight: 700; }
+      .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
+      .metric { border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; padding: 14px; }
+      .metric strong { display: block; margin-top: 6px; font-size: 25px; }
+      .results { display: grid; gap: 12px; }
+      .result-card { padding: 16px; }
+      .result-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+      .score { font-size: 24px; font-weight: 800; }
+      .passed { color: #067647; }
+      .failed { color: #b54708; }
+      .metric-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 12px 0; }
+      .metric-grid div { border-radius: 6px; background: #f9fafb; padding: 9px; font-size: 13px; }
+      .metric-grid strong { display: block; margin-top: 3px; font-size: 18px; }
+      ul { margin: 8px 0; padding-left: 20px; }
+      .error { border-color: #fecdca; background: #fff3f0; color: #b42318; }
+      select { font: inherit; padding: 8px; max-width: 100%; }
+      .regressions { margin-top: 28px; }
+      .regressions article { border-top: 1px solid #d0d5dd; padding: 16px 0; overflow-wrap: anywhere; }
+      @media (max-width: 760px) {
+        .case-row { grid-template-columns: 28px 1fr; }
+        .case-row > :nth-child(n+3) { grid-column: 2; }
+        .summary { grid-template-columns: 1fr 1fr; }
+        .metric-grid { grid-template-columns: 1fr 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">← 返回聊天助手</a>
+      <h1>回复质量评测</h1>
+      <p class="subtitle">使用固定匿名样本检查场景识别、自然度、规则合规和候选差异。运行评测会调用当前配置的文本模型，但不会写入用户记忆。</p>
+
+      <div class="toolbar">
+        <select id="dataset-mode" aria-label="评测数据集"><option value="core">核心评测集</option><option value="v020">v0.20 真实聊天对照</option></select>
+        <button id="run-button" type="button">运行选中样本</button>
+        <button id="select-all" class="secondary" type="button">全选</button>
+        <button id="clear-all" class="secondary" type="button">清空</button>
+        <span id="dataset-meta" class="meta">正在读取评测集...</span>
+      </div>
+
+      <section id="case-list" class="panel"></section>
+      <section id="output"></section>
+      <section class="regressions">
+        <h2>v0.20 规则修正对照</h2>
+        <p class="meta">真实聊天上下文，问题候选与参考改写为人工构造。此处只复现模板替换规则，不代表真实模型质量测评。</p>
+        <button type="button" class="secondary" id="compare-button">查看离线对照</button>
+        <div id="comparison" aria-live="polite"></div>
+      </section>
+    </main>
+    <script>
+      const caseList = document.querySelector("#case-list");
+      const output = document.querySelector("#output");
+      const runButton = document.querySelector("#run-button");
+      const datasetMeta = document.querySelector("#dataset-meta");
+      const datasetMode = document.querySelector("#dataset-mode");
+
+      loadCases();
+
+      document.querySelector("#select-all").addEventListener("click", () => {
+        caseList.querySelectorAll('input[type="checkbox"]').forEach((item) => { item.checked = true; });
+      });
+      document.querySelector("#clear-all").addEventListener("click", () => {
+        caseList.querySelectorAll('input[type="checkbox"]').forEach((item) => { item.checked = false; });
+      });
+      runButton.addEventListener("click", runSelected);
+      datasetMode.addEventListener("change", () => { output.innerHTML = ""; loadCases(); });
+      document.querySelector("#compare-button").addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const panel = document.querySelector("#comparison");
+        button.disabled = true;
+        panel.textContent = "正在读取对照...";
+        try {
+          const response = await fetch("/api/evals/regressions");
+          if (!response.ok) throw new Error(await readError(response));
+          const data = await response.json();
+          panel.innerHTML = `<p class="meta">${escapeHtml(data.source.note)}</p>
+            <details><summary>原始聊天</summary><ul>${data.chat.messages.map((message) => `<li>${message.speaker === "me" ? "我" : "对方"}：${escapeHtml(message.text)}</li>`).join("")}</ul></details>
+            ${data.results.map((item) => `<article><h3>${escapeHtml(item.id)}</h3>
+              <p><strong>问题候选：</strong>${escapeHtml(item.input)}</p>
+              <p><strong>旧规则复现：</strong>${escapeHtml(item.before)}</p>
+              <p><strong>v0.20 交给质检的文本：</strong>${escapeHtml(item.after)}</p>
+              <p><strong>人工参考改写：</strong>${escapeHtml(item.reference)}</p>
+              <p class="meta">${escapeHtml(item.issue)}</p></article>`).join("")}`;
+        } catch (error) {
+          panel.textContent = `读取失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      async function loadCases() {
+        const selectedDataset = datasetMode.value;
+        runButton.disabled = true;
+        try {
+          const response = await fetch(`/api/evals/cases?dataset=${selectedDataset}`);
+          if (!response.ok) throw new Error(await readError(response));
+          const data = await response.json();
+          if (datasetMode.value !== selectedDataset) return;
+          datasetMeta.textContent = `${data.dataset_name} · ${data.version} · ${data.cases.length} 条`;
+          caseList.innerHTML = data.cases.map((item, index) => `
+            <label class="case-row">
+              <input type="checkbox" value="${escapeHtml(item.id)}" ${index === 0 ? "checked" : ""} />
+              <span><strong>${escapeHtml(item.name)}</strong><br><span class="meta">${escapeHtml(item.id)}</span></span>
+              <span class="badge">${escapeHtml(item.relation_type)}</span>
+              <span class="meta">${escapeHtml(item.expected_scenarios.join(" / "))}</span>
+              <span class="meta">${item.has_image ? "含截图" : `${item.message_count} 条消息`}</span>
+            </label>
+          `).join("");
+          runButton.disabled = false;
+        } catch (error) {
+          if (datasetMode.value !== selectedDataset) return;
+          caseList.innerHTML = `<div class="result-card error">读取失败：${escapeHtml(error.message)}</div>`;
+        }
+      }
+
+      async function runSelected() {
+        const caseIds = Array.from(caseList.querySelectorAll('input:checked')).map((item) => item.value);
+        if (!caseIds.length) {
+          output.innerHTML = '<div class="result-card error">请至少选择一个样本。</div>';
+          return;
+        }
+        runButton.disabled = true;
+        datasetMode.disabled = true;
+        runButton.textContent = "评测运行中...";
+        output.innerHTML = '<p class="meta">模型会依次处理所选样本，请稍候。</p>';
+        try {
+          const response = await fetch("/api/evals/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ case_ids: caseIds, dataset: datasetMode.value }),
+          });
+          if (!response.ok) throw new Error(await readError(response));
+          renderRun(await response.json());
+        } catch (error) {
+          output.innerHTML = `<div class="result-card error">运行失败：${escapeHtml(error.message)}</div>`;
+        } finally {
+          runButton.disabled = false;
+          datasetMode.disabled = false;
+          runButton.textContent = "运行选中样本";
+        }
+      }
+
+      function renderRun(data) {
+        const results = data.results.map((item) => {
+          const recognition = item.metrics.recognition_accuracy == null ? "" : `
+            <div>截图识别<strong>${item.metrics.recognition_accuracy}</strong></div>
+            <div>文字 / 说话人<strong>${item.metrics.text_accuracy} / ${item.metrics.speaker_accuracy}</strong></div>`;
+          return `
+            <article class="result-card ${item.error ? "error" : ""}">
+              <div class="result-head">
+                <div><h3>${escapeHtml(item.name)}</h3><span class="meta">${escapeHtml(item.case_id)} · ${escapeHtml(item.relation_type)}</span></div>
+                <div class="score ${item.passed ? "passed" : "failed"}">${item.score == null ? "未评分" : `${item.score} 分`}</div>
+              </div>
+              ${item.error ? `<p>错误：${escapeHtml(item.error)}</p>` : `
+                <div class="metric-grid">
+                  <div>场景命中<strong>${item.metrics.scenario_accuracy}</strong></div>
+                  <div>回复质量<strong>${item.metrics.reply_quality ?? "未评分"}</strong></div>
+                  <div>规则合规<strong>${item.metrics.constraint_compliance}</strong></div>
+                  <div>候选差异<strong>${item.metrics.candidate_diversity}</strong></div>
+                  ${recognition}
+                </div>
+                <p class="meta">预期场景：${escapeHtml(item.expected_scenarios.join(" / ") || "不限制")} · 实际：${escapeHtml(item.actual_scenario)}</p>
+                <strong>本次候选</strong>
+                <ul>${item.replies.map((reply) => `<li>${escapeHtml(reply.text)} <span class="meta">${escapeHtml(reply.style)}</span></li>`).join("")}</ul>
+                <strong>人工参考</strong>
+                <ul>${item.reference_replies.map((reply) => `<li>${escapeHtml(reply)}</li>`).join("") || "<li>暂无</li>"}</ul>
+                ${item.issues.length ? `<p class="failed">${escapeHtml(item.issues.join("；"))}</p>` : '<p class="passed">未发现硬性问题</p>'}
+              `}
+            </article>
+          `;
+        }).join("");
+        output.innerHTML = `
+          <div class="summary">
+            <div class="metric">平均分<strong>${data.average_score ?? "未评分"}</strong></div>
+            <div class="metric">通过样本<strong>${data.passed_cases} / ${data.total_cases}</strong></div>
+            <div class="metric">整体状态<strong class="${data.passed ? "passed" : "failed"}">${data.passed ? "通过" : "未通过"}</strong></div>
+            <div class="metric">数据集<strong>${escapeHtml(data.version)}</strong></div>
+          </div>
+          <div class="results">${results}</div>
+        `;
+      }
+
+      async function readError(response) {
+        const text = await response.text();
+        try { return JSON.parse(text).detail || text; } catch { return text; }
+      }
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+    </script>
+  </body>
+</html>

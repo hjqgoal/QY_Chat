@@ -1,0 +1,1890 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>奇遇聊天助手</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #1f2937;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      main {
+        width: min(960px, calc(100% - 32px));
+        margin: 32px auto;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 32px;
+      }
+
+      .subtitle {
+        margin: 0 0 24px;
+        color: #667085;
+      }
+
+      .page-link {
+        display: inline-block;
+        color: #175cd3;
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .page-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 18px;
+        margin-bottom: 14px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 999px;
+        padding: 6px 12px;
+        background: #fff;
+        color: #667085;
+        font-size: 14px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #98a2b3;
+      }
+
+      .status.ready .status-dot {
+        background: #12b76a;
+      }
+
+      .panel {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 20px;
+      }
+
+      form {
+        display: grid;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+        font-weight: 600;
+      }
+
+      input,
+      select,
+      textarea,
+      button {
+        font: inherit;
+      }
+
+      input[type="text"],
+      input[type="file"],
+      select {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #fff;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 12px 16px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        background: #98a2b3;
+        cursor: wait;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      .reply-controls {
+        min-width: 0;
+        margin: 0;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 14px;
+      }
+
+      .reply-controls legend {
+        padding: 0 6px;
+        font-weight: 700;
+      }
+
+      .control-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+        min-width: 0;
+      }
+
+      .persistence-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-top: 14px;
+        border-top: 1px solid #eef2f7;
+        padding-top: 14px;
+        cursor: pointer;
+      }
+
+      .persistence-option input {
+        width: 18px;
+        height: 18px;
+        margin: 2px 0 0;
+        flex: 0 0 auto;
+      }
+
+      .persistence-copy {
+        display: grid;
+        gap: 3px;
+      }
+
+      .persistence-copy small {
+        color: #667085;
+        font-weight: 400;
+      }
+
+      .privacy-note {
+        border-color: #b2ddff;
+        background: #eff8ff;
+        color: #175cd3;
+      }
+
+      .upload-field {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .background-field {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .background-field textarea {
+        width: 100%;
+        min-height: 116px;
+        resize: vertical;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #fff;
+        line-height: 1.6;
+      }
+
+      .background-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: #667085;
+        font-size: 13px;
+        font-weight: 400;
+      }
+
+      .background-meta span:last-child {
+        flex: 0 0 auto;
+      }
+
+      .background-evidence {
+        margin: 0;
+        border-left: 3px solid #84adff;
+        padding: 8px 0 8px 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        line-height: 1.65;
+      }
+
+      .upload-label {
+        font-weight: 700;
+      }
+
+      .upload-help,
+      .upload-status {
+        margin: 0;
+        color: #667085;
+        font-size: 13px;
+      }
+
+      .upload-status.warning {
+        color: #b54708;
+      }
+
+      .upload-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .upload-list:empty {
+        display: none;
+      }
+
+      .upload-item {
+        display: grid;
+        grid-template-columns: 28px 56px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #f9fafb;
+      }
+
+      .upload-order {
+        color: #475467;
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+      }
+
+      .upload-thumbnail {
+        width: 56px;
+        height: 56px;
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        object-fit: contain;
+        background: #fff;
+      }
+
+      .upload-details {
+        min-width: 0;
+      }
+
+      .upload-name {
+        overflow-wrap: anywhere;
+        font-weight: 600;
+      }
+
+      .upload-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .upload-action {
+        border: 1px solid #d0d5dd;
+        padding: 6px 9px;
+        background: #fff;
+        color: #344054;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .upload-action.remove {
+        color: #b42318;
+      }
+
+      .upload-action:disabled {
+        border-color: #e5e7eb;
+        background: #f2f4f7;
+        color: #98a2b3;
+        cursor: not-allowed;
+      }
+
+      .regenerate-candidate {
+        border-color: #84adff;
+        color: #175cd3;
+      }
+
+      .result {
+        display: grid;
+        gap: 16px;
+        margin-top: 20px;
+      }
+
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .card h2,
+      .card h3 {
+        margin: 0 0 10px;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+        color: #344054;
+      }
+
+      .reply {
+        border-top: 1px solid #eef2f7;
+        padding-top: 12px;
+        margin-top: 12px;
+      }
+
+      .reply textarea {
+        width: 100%;
+        min-height: 54px;
+        box-sizing: border-box;
+        resize: vertical;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fff;
+        font: inherit;
+      }
+
+      .feedback-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .feedback-button {
+        border: 1px solid #d0d5dd;
+        padding: 6px 10px;
+        background: #fff;
+        color: #344054;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .feedback-button.accepted {
+        border-color: #12b76a;
+        color: #027a48;
+      }
+
+      .feedback-status {
+        margin-top: 8px;
+        min-height: 18px;
+      }
+
+      .memory-source-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .memory-source {
+        padding: 12px 0;
+        border-top: 1px solid #eef2f7;
+      }
+
+      .memory-source:first-child {
+        padding-top: 0;
+        border-top: 0;
+      }
+
+      .memory-source:last-child {
+        padding-bottom: 0;
+      }
+
+      .memory-source-heading {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 5px;
+      }
+
+      .memory-score {
+        display: inline-flex;
+        border-radius: 999px;
+        padding: 2px 7px;
+        background: #ecfdf3;
+        color: #027a48;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .message-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .message {
+        border: 1px solid #eef2f7;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #f9fafb;
+      }
+
+      .message.me {
+        background: #eff6ff;
+      }
+
+      .message.other {
+        background: #f7fee7;
+      }
+
+      .message.needs-review {
+        border-color: #f79009;
+        background: #fffaeb;
+      }
+
+      .message-speaker {
+        margin-bottom: 4px;
+        color: #667085;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .message-confidence {
+        display: inline-flex;
+        margin-left: 8px;
+        border: 1px solid #d0d5dd;
+        border-radius: 999px;
+        padding: 2px 7px;
+        background: #fff;
+        color: #475467;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .message-confidence.warning {
+        border-color: #fedf89;
+        background: #fffaeb;
+        color: #b54708;
+      }
+
+      .review-banner {
+        margin: 12px 0;
+        border: 1px solid #b2ddff;
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: #eff8ff;
+        color: #175cd3;
+      }
+
+      .review-banner.warning {
+        border-color: #fedf89;
+        background: #fffaeb;
+        color: #b54708;
+      }
+
+      .message-warnings {
+        margin: 0;
+        padding-left: 18px;
+        color: #b54708;
+        font-size: 13px;
+      }
+
+      .review-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .message-edit {
+        display: grid;
+        gap: 8px;
+      }
+
+      .message-controls {
+        display: grid;
+        grid-template-columns: 140px 140px 1fr;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .message textarea {
+        width: 100%;
+        min-height: 48px;
+        box-sizing: border-box;
+        resize: vertical;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #fff;
+        font: inherit;
+      }
+
+      .secondary-button {
+        background: #111827;
+      }
+
+      .meta {
+        color: #667085;
+        font-size: 14px;
+      }
+
+      .style-evidence-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0;
+      }
+
+      .style-evidence-phrase {
+        border: 1px solid #d0d5dd;
+        border-radius: 6px;
+        padding: 5px 8px;
+        background: #f9fafb;
+        color: #344054;
+        font-size: 13px;
+      }
+
+      .style-evidence-note {
+        border-left: 3px solid #84adff;
+        padding-left: 10px;
+      }
+
+      .scenario-heading {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .scenario-badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #b2ddff;
+        border-radius: 999px;
+        padding: 4px 9px;
+        background: #eff8ff;
+        color: #175cd3;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .signal-list {
+        margin: 8px 0 0;
+        padding-left: 20px;
+        color: #475467;
+      }
+
+      .quality-badge {
+        display: inline-flex;
+        align-items: center;
+        margin-left: 8px;
+        border: 1px solid #d0d5dd;
+        border-radius: 999px;
+        padding: 3px 8px;
+        background: #f9fafb;
+        color: #475467;
+        font-size: 12px;
+        font-weight: 700;
+        vertical-align: middle;
+      }
+
+      .quality-badge.passed {
+        border-color: #abefc6;
+        background: #ecfdf3;
+        color: #067647;
+      }
+
+      .quality-badge.failed {
+        border-color: #fedf89;
+        background: #fffaeb;
+        color: #b54708;
+      }
+
+      .error {
+        color: #b42318;
+        background: #fff3f0;
+        border-color: #fecdca;
+      }
+
+      @media (max-width: 720px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .message-controls {
+          grid-template-columns: 1fr;
+        }
+
+        .control-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .upload-item {
+          grid-template-columns: 24px 48px minmax(0, 1fr);
+        }
+
+        .upload-thumbnail {
+          width: 48px;
+          height: 48px;
+        }
+
+        .upload-actions {
+          grid-column: 2 / -1;
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>奇遇聊天助手</h1>
+      <p class="subtitle">上传聊天截图或补充文字背景，生成回复时机、策略和候选回复。</p>
+      <nav class="page-links" aria-label="辅助页面">
+        <a class="page-link" href="/memory">管理记忆与风格</a>
+        <a class="page-link" href="/evals">打开回复质量评测</a>
+      </nav>
+      <div id="status" class="status">
+        <span class="status-dot"></span>
+        <span>正在检查模型配置...</span>
+      </div>
+
+      <section class="panel">
+        <form id="reply-form">
+          <div class="grid">
+            <label>
+              关系类型
+              <select name="relation_type" required>
+                <option value="lover_committed">恋人（已在一起）</option>
+                <option value="lover_pursuing">追求/暧昧中</option>
+                <option value="colleague">同事</option>
+                <option value="family">家人</option>
+                <option value="friend">朋友</option>
+              </select>
+            </label>
+
+            <label>
+              我的账号 ID
+              <input name="user_id" type="text" value="default" />
+            </label>
+          </div>
+
+          <div class="grid">
+            <label>
+              聊天对象 ID
+              <input name="contact_id" type="text" value="default-contact" list="contact-options" required />
+              <datalist id="contact-options"></datalist>
+            </label>
+
+            <label>
+              对方备注
+              <input name="contact_name" type="text" placeholder="例如：小林" />
+            </label>
+          </div>
+
+          <fieldset class="reply-controls">
+            <legend>本次回复设定</legend>
+            <div class="grid">
+              <label>
+                我想怎么回
+                <select name="reply_intent">
+                  <option value="auto">让系统判断</option>
+                  <option value="agree">答应 / 接受</option>
+                  <option value="decline">拒绝 / 婉拒</option>
+                  <option value="comfort">安慰对方</option>
+                  <option value="explain">解释清楚</option>
+                  <option value="advance">主动推进</option>
+                  <option value="cool_down">先降温</option>
+                  <option value="end_topic">结束话题</option>
+                  <option value="ask_clarify">问清楚</option>
+                </select>
+              </label>
+
+              <label>
+                补充意图
+                <input name="custom_intent" type="text" maxlength="160" placeholder="例如：拒绝，但给对方留个台阶" />
+              </label>
+            </div>
+
+            <div class="control-grid">
+              <label>
+                回复长度
+                <select name="length_preference">
+                  <option value="very_short">很短</option>
+                  <option value="short" selected>短句</option>
+                  <option value="normal">稍完整</option>
+                </select>
+              </label>
+
+              <label>
+                亲密程度
+                <select name="intimacy_level">
+                  <option value="1">克制</option>
+                  <option value="2" selected>自然</option>
+                  <option value="3">更亲近</option>
+                </select>
+              </label>
+
+              <label>
+                主动程度
+                <select name="initiative_level">
+                  <option value="1">只回应</option>
+                  <option value="2" selected>自然接话</option>
+                  <option value="3">主动推进</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="persistence-option">
+              <input name="save_to_memory" type="checkbox" checked />
+              <span class="persistence-copy">
+                <span>保存本轮到联系人记忆</span>
+                <small>取消后不会写入本机数据库，上传图片会在识别后删除；补充背景和识别结果仍会发送给你配置的大模型服务。</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <label class="background-field" for="background-context">
+            补充聊天背景（可单独使用）
+            <textarea
+              id="background-context"
+              name="background_context"
+              maxlength="2000"
+              placeholder="例如：我们昨天因为见面时间吵了几句，今天对方主动来找我。我想缓和一下，但不想显得太刻意。"
+            ></textarea>
+            <span class="background-meta">
+              <span>可概括更早的聊天、关系进展和当前顾虑；有截图时会一起参考。</span>
+              <span id="background-count">0 / 2000</span>
+            </span>
+          </label>
+
+          <div class="upload-field">
+            <label class="upload-label" for="chat-images">微信聊天截图（选填，1–6 张）</label>
+            <input id="chat-images" name="images" type="file" accept="image/*" multiple />
+            <p class="upload-help">多张截图会按下方顺序识别，请将较早的聊天放在前面。</p>
+            <div id="upload-list" class="upload-list" aria-live="polite"></div>
+            <p id="upload-status" class="upload-status">尚未选择截图</p>
+          </div>
+
+          <button id="submit-button" type="submit">开始分析</button>
+        </form>
+      </section>
+
+      <section id="result" class="result"></section>
+    </main>
+
+    <script>
+      const form = document.querySelector("#reply-form");
+      const button = document.querySelector("#submit-button");
+      const result = document.querySelector("#result");
+      const statusBox = document.querySelector("#status");
+      const imageInput = document.querySelector("#chat-images");
+      const backgroundInput = document.querySelector("#background-context");
+      const backgroundCount = document.querySelector("#background-count");
+      const uploadList = document.querySelector("#upload-list");
+      const uploadStatus = document.querySelector("#upload-status");
+      const maxScreenshotCount = 6;
+      let latestResponse = null;
+      let memoryPollToken = 0;
+      let pendingExtraction = null;
+      let knownContacts = [];
+      let selectedImages = [];
+      let previewUrls = [];
+
+      loadStatus();
+      loadContacts();
+      updateSubmitButtonLabel();
+
+      backgroundInput.addEventListener("input", () => {
+        backgroundCount.textContent = `${backgroundInput.value.length} / 2000`;
+        updateSubmitButtonLabel();
+      });
+
+      result.addEventListener("input", (event) => {
+        if (!latestResponse || !event.target.matches("[data-reply-text]")) return;
+        const card = event.target.closest("[data-reply-index]");
+        const index = Number(card.dataset.replyIndex);
+        updateSingleQuality({candidate_index: index, overall_score: null, status: "not_reviewed", passed: false, issues: ["手动编辑后需重新质检"]}, index);
+        const badge = card.querySelector(".quality-badge");
+        if (badge) {
+          badge.textContent = "未评分";
+          badge.classList.remove("passed");
+          badge.classList.add("failed");
+        }
+        const total = result.querySelector("[data-quality-total]");
+        if (total) {
+          total.textContent = "未评分";
+          total.classList.remove("passed");
+          total.classList.add("failed");
+        }
+        const state = result.querySelector("[data-quality-state]");
+        if (state) state.textContent = "编辑后的内容尚未质检";
+        const summary = result.querySelector("[data-quality-summary]");
+        if (summary) summary.textContent = latestResponse.quality.summary;
+      });
+
+      form.elements.user_id.addEventListener("change", loadContacts);
+      form.elements.contact_id.addEventListener("change", () => {
+        const contact = knownContacts.find(
+          (item) => item.contact_id === form.elements.contact_id.value.trim(),
+        );
+        if (contact) {
+          form.elements.contact_name.value = contact.contact_name;
+          form.elements.relation_type.value = contact.relation_type;
+        }
+      });
+
+      imageInput.addEventListener("change", () => {
+        const files = Array.from(imageInput.files || []);
+        selectedImages = files.slice(0, maxScreenshotCount);
+        renderSelectedImages(
+          files.length > maxScreenshotCount
+            ? `一次最多识别 ${maxScreenshotCount} 张，已保留前 ${maxScreenshotCount} 张。`
+            : "",
+        );
+      });
+
+      uploadList.addEventListener("click", (event) => {
+        const actionButton = event.target.closest("[data-upload-action]");
+        if (!actionButton) return;
+
+        const index = Number(actionButton.dataset.imageIndex);
+        const action = actionButton.dataset.uploadAction;
+        if (!Number.isInteger(index) || index < 0 || index >= selectedImages.length) {
+          return;
+        }
+
+        if (action === "remove") {
+          selectedImages.splice(index, 1);
+        } else if (action === "up" && index > 0) {
+          [selectedImages[index - 1], selectedImages[index]] = [
+            selectedImages[index],
+            selectedImages[index - 1],
+          ];
+        } else if (action === "down" && index < selectedImages.length - 1) {
+          [selectedImages[index], selectedImages[index + 1]] = [
+            selectedImages[index + 1],
+            selectedImages[index],
+          ];
+        }
+        renderSelectedImages();
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const backgroundContext = getBackgroundContext();
+        if (!selectedImages.length && !backgroundContext) {
+          result.innerHTML = '<div class="card error">请上传聊天截图，或填写补充聊天背景。</div>';
+          backgroundInput.focus();
+          return;
+        }
+        button.disabled = true;
+        button.textContent = selectedImages.length ? "识别中..." : "生成中...";
+        result.innerHTML = "";
+
+        try {
+          if (!selectedImages.length) {
+            const payload = buildChatPayload(
+              createBackgroundOnlyChat(),
+              form.elements.relation_type.value,
+              form.elements.contact_id.value,
+              form.elements.contact_name.value,
+            );
+            const response = await fetch("/api/reply/from-chat", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+              throw new Error(await readError(response));
+            }
+            renderResult(await response.json());
+            return;
+          }
+
+          const uploadData = new FormData();
+          selectedImages.forEach((file) => uploadData.append("images", file, file.name));
+          const response = await fetch("/api/vision/extract-batch", {
+            method: "POST",
+            body: uploadData,
+          });
+
+          if (!response.ok) {
+            throw new Error(await readError(response));
+          }
+
+          const data = await response.json();
+          renderExtractionReview(data);
+        } catch (error) {
+          result.innerHTML = `<div class="card error">请求失败：${escapeHtml(error.message)}</div>`;
+        } finally {
+          button.disabled = false;
+          updateSubmitButtonLabel();
+        }
+      });
+
+      result.addEventListener("click", async (event) => {
+        if (event.target.matches("[data-feedback]")) {
+          await submitReplyFeedback(event.target);
+          return;
+        }
+
+        if (event.target.matches("[data-action='confirm-extraction']")) {
+          await generateFromExtraction(event.target);
+          return;
+        }
+
+        if (event.target.matches("[data-action='regenerate-candidate']")) {
+          await regenerateCandidate(event.target);
+          return;
+        }
+
+        if (!event.target.matches("#regenerate-button")) {
+          return;
+        }
+
+        if (!latestResponse) {
+          return;
+        }
+
+        const regenerateButton = event.target;
+        regenerateButton.disabled = true;
+        regenerateButton.textContent = "重新生成中...";
+
+        try {
+          const payload = buildCorrectedPayload();
+          const response = await fetch("/api/reply/corrected", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            throw new Error(await readError(response));
+          }
+
+          const data = await response.json();
+          renderResult(data);
+        } catch (error) {
+          const errorBox = document.createElement("div");
+          errorBox.className = "card error";
+          errorBox.textContent = `重新生成失败：${error.message}`;
+          result.prepend(errorBox);
+        } finally {
+          regenerateButton.disabled = false;
+          regenerateButton.textContent = "使用修正重新生成";
+        }
+      });
+
+      result.addEventListener("change", (event) => {
+        if (!event.target.matches("[data-field='speaker'], [data-field='side']")) {
+          return;
+        }
+        const row = event.target.closest("[data-message-index]");
+        if (!row) {
+          return;
+        }
+        const speakerSelect = row.querySelector("[data-field='speaker']");
+        const sideSelect = row.querySelector("[data-field='side']");
+        if (event.target.dataset.field === "side") {
+          if (sideSelect.value === "right") speakerSelect.value = "me";
+          if (sideSelect.value === "left") speakerSelect.value = "other";
+        } else {
+          if (speakerSelect.value === "me") sideSelect.value = "right";
+          if (speakerSelect.value === "other") sideSelect.value = "left";
+        }
+        row.closest(".message")?.classList.remove("needs-review");
+      });
+
+      window.addEventListener("pagehide", revokePreviewUrls);
+
+      function renderSelectedImages(warning = "") {
+        revokePreviewUrls();
+        syncImageInputFiles();
+        previewUrls = selectedImages.map((file) => URL.createObjectURL(file));
+        uploadList.innerHTML = selectedImages
+          .map(
+            (file, index) => `
+              <div class="upload-item">
+                <div class="upload-order">${index + 1}</div>
+                <img
+                  class="upload-thumbnail"
+                  src="${previewUrls[index]}"
+                  alt="第 ${index + 1} 张截图预览"
+                />
+                <div class="upload-details">
+                  <div class="upload-name">${escapeHtml(file.name)}</div>
+                  <div class="meta">${formatFileSize(file.size)}</div>
+                </div>
+                <div class="upload-actions">
+                  <button
+                    class="upload-action"
+                    type="button"
+                    data-upload-action="up"
+                    data-image-index="${index}"
+                    title="将这张截图提前"
+                    ${index === 0 ? "disabled" : ""}
+                  >上移</button>
+                  <button
+                    class="upload-action"
+                    type="button"
+                    data-upload-action="down"
+                    data-image-index="${index}"
+                    title="将这张截图后移"
+                    ${index === selectedImages.length - 1 ? "disabled" : ""}
+                  >下移</button>
+                  <button
+                    class="upload-action remove"
+                    type="button"
+                    data-upload-action="remove"
+                    data-image-index="${index}"
+                    title="移除这张截图"
+                  >移除</button>
+                </div>
+              </div>
+            `,
+          )
+          .join("");
+
+        uploadStatus.textContent = warning || (
+          selectedImages.length
+            ? `已选择 ${selectedImages.length} 张，将按 1 到 ${selectedImages.length} 的顺序识别。`
+            : "尚未选择截图"
+        );
+        uploadStatus.classList.toggle("warning", Boolean(warning));
+        updateSubmitButtonLabel();
+      }
+
+      function syncImageInputFiles() {
+        try {
+          const transfer = new DataTransfer();
+          selectedImages.forEach((file) => transfer.items.add(file));
+          imageInput.files = transfer.files;
+        } catch {
+          // The ordered in-memory list is still used for submission on older browsers.
+        }
+      }
+
+      function revokePreviewUrls() {
+        previewUrls.forEach((url) => URL.revokeObjectURL(url));
+        previewUrls = [];
+      }
+
+      function formatFileSize(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes || 0} B`;
+        if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      }
+
+      function getBackgroundContext() {
+        return backgroundInput.value.trim();
+      }
+
+      function updateSubmitButtonLabel() {
+        if (button.disabled) return;
+        button.textContent = selectedImages.length
+          ? "识别并校对"
+          : getBackgroundContext()
+            ? "根据背景生成回复"
+            : "开始分析";
+      }
+
+      function createBackgroundOnlyChat() {
+        return {
+          messages: [],
+          topic: "",
+          last_message_from_other: "",
+          confidence: 0,
+          notes: [],
+          review_required: false,
+          review_message_indexes: [],
+          source_image_count: 0,
+          merged_overlap_count: 0,
+        };
+      }
+
+      function describeScreenshotMerge(chat) {
+        const imageCount = Math.max(0, Number(chat?.source_image_count) || 0);
+        const overlapCount = Math.max(0, Number(chat?.merged_overlap_count) || 0);
+        if (imageCount === 0) return "未上传截图，仅使用文字背景";
+        if (imageCount === 1) return "来源：1 张截图";
+        return overlapCount
+          ? `已按顺序合并 ${imageCount} 张截图，去除衔接重复 ${overlapCount} 条`
+          : `已按顺序合并 ${imageCount} 张截图，未发现衔接重复`;
+      }
+
+      async function loadStatus() {
+        try {
+          const response = await fetch("/api/status");
+          const data = await response.json();
+          statusBox.classList.toggle("ready", data.llm_configured);
+          statusBox.querySelector("span:last-child").textContent = data.llm_configured
+            ? `回复：${data.models?.strong || data.text_model} · 识图：${data.vision_model}`
+            : "未配置 .env，当前会使用本地占位识别";
+        } catch {
+          statusBox.querySelector("span:last-child").textContent = "无法读取模型配置状态";
+        }
+      }
+
+      async function loadContacts() {
+        const userId = form.elements.user_id.value.trim() || "default";
+        try {
+          const response = await fetch(`/api/contacts?user_id=${encodeURIComponent(userId)}`);
+          if (!response.ok) {
+            return;
+          }
+          const data = await response.json();
+          knownContacts = data.contacts || [];
+          document.querySelector("#contact-options").innerHTML = knownContacts
+            .map(
+              (item) =>
+                `<option value="${escapeHtml(item.contact_id)}">${escapeHtml(item.contact_name)}</option>`,
+            )
+            .join("");
+        } catch {
+          knownContacts = [];
+        }
+      }
+
+      async function readError(response) {
+        const text = await response.text();
+        try {
+          const data = JSON.parse(text);
+          return data.detail || text;
+        } catch {
+          return text;
+        }
+      }
+
+      async function generateFromExtraction(confirmButton) {
+        if (!pendingExtraction) {
+          return;
+        }
+        const editedChat = collectEditedChat(pendingExtraction);
+        if (!editedChat.messages.length && !getBackgroundContext()) {
+          result.prepend(createErrorBox("请至少保留一条聊天消息，或填写补充聊天背景。"));
+          return;
+        }
+
+        const wasEdited = chatWasEdited(pendingExtraction, editedChat);
+        const payload = buildChatPayload(
+          editedChat,
+          form.elements.relation_type.value,
+          form.elements.contact_id.value,
+          form.elements.contact_name.value,
+        );
+        confirmButton.disabled = true;
+        confirmButton.textContent = "生成中...";
+
+        try {
+          const response = await fetch(
+            wasEdited ? "/api/reply/corrected" : "/api/reply/from-chat",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+          );
+          if (!response.ok) {
+            throw new Error(await readError(response));
+          }
+          renderResult(await response.json());
+        } catch (error) {
+          result.prepend(createErrorBox(`生成失败：${error.message}`));
+          confirmButton.disabled = false;
+          confirmButton.textContent = "确认内容并生成回复";
+        }
+      }
+
+      function renderExtractionReview(data) {
+        pendingExtraction = data;
+        latestResponse = null;
+        const reviewCount = data.review_message_indexes?.length || 0;
+        const reviewClass = data.review_required ? "review-banner warning" : "review-banner";
+        const reviewText = data.review_required
+          ? `有 ${reviewCount} 条消息置信度较低，请重点核对高亮内容。`
+          : "识别结果置信度正常，请确认文字和说话人后再生成。";
+
+        result.innerHTML = `
+          <div class="card">
+            <h2>先校对截图内容</h2>
+            ${renderBackgroundEvidence(getBackgroundContext(), true)}
+            <p><strong>主题：</strong>${escapeHtml(data.topic || "暂无")}</p>
+            <p><strong>对方最后一条：</strong>${escapeHtml(data.last_message_from_other || "暂无")}</p>
+            <p class="meta">${escapeHtml(describeScreenshotMerge(data))} · 综合识别置信度：${Math.round((data.confidence || 0) * 100)}%</p>
+            <div class="${reviewClass}">${escapeHtml(reviewText)}</div>
+            <div class="message-list">${renderMessageEditors(data, "preview")}</div>
+            <div class="review-actions">
+              <button type="button" data-action="confirm-extraction">确认内容并生成回复</button>
+            </div>
+            ${data.notes?.length ? `<p class="meta">备注：${escapeHtml(data.notes.join("；"))}</p>` : ""}
+          </div>
+        `;
+      }
+
+      function renderMessageEditors(extractedChat, mode) {
+        return extractedChat.messages.map((item, index) => {
+          const speaker = {
+            me: "我",
+            other: "对方",
+            unknown: "未知",
+          }[item.speaker] || item.speaker;
+          const side = {
+            left: "左侧",
+            right: "右侧",
+            center: "中间",
+            unknown: "位置未知",
+          }[item.side] || item.side;
+          const textConfidence = Math.round((item.text_confidence ?? 1) * 100);
+          const speakerConfidence = Math.round((item.speaker_confidence ?? 1) * 100);
+          const confidenceClass = item.needs_review
+            ? "message-confidence warning"
+            : "message-confidence";
+          const hint = mode === "preview"
+            ? "修改任意一项后再确认"
+            : "修正后可重新生成";
+
+          return `
+            <div class="message ${escapeHtml(item.speaker)} ${item.needs_review ? "needs-review" : ""}">
+              <div class="message-speaker">
+                ${escapeHtml(speaker)}${side ? ` · ${escapeHtml(side)}` : ""}${item.time ? ` · ${escapeHtml(item.time)}` : ""}
+                <span class="${confidenceClass}">文字 ${textConfidence}% · 说话人 ${speakerConfidence}%</span>
+              </div>
+              <div class="message-edit" data-message-index="${index}">
+                <div class="message-controls">
+                  <select data-field="speaker" aria-label="第 ${index + 1} 条消息说话人">
+                    <option value="me" ${item.speaker === "me" ? "selected" : ""}>我</option>
+                    <option value="other" ${item.speaker === "other" ? "selected" : ""}>对方</option>
+                    <option value="unknown" ${item.speaker === "unknown" ? "selected" : ""}>未知</option>
+                  </select>
+                  <select data-field="side" aria-label="第 ${index + 1} 条消息位置">
+                    <option value="right" ${item.side === "right" ? "selected" : ""}>右侧</option>
+                    <option value="left" ${item.side === "left" ? "selected" : ""}>左侧</option>
+                    <option value="center" ${item.side === "center" ? "selected" : ""}>中间</option>
+                    <option value="unknown" ${!item.side || item.side === "unknown" ? "selected" : ""}>未知位置</option>
+                  </select>
+                  <span class="meta">${hint}</span>
+                </div>
+                <textarea data-field="text" aria-label="第 ${index + 1} 条消息文字">${escapeHtml(item.text)}</textarea>
+                ${item.warnings?.length ? `<ul class="message-warnings">${item.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>` : ""}
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function renderResult(data) {
+        latestResponse = data;
+        pendingExtraction = null;
+        const contactMemory = data.contact_memory || {};
+        const messages = renderMessageEditors(data.extracted_chat, "result");
+
+        const replies = data.replies
+          .map((item, index) => {
+            const review = data.quality?.items?.find(
+              (qualityItem) => qualityItem.candidate_index === index,
+            );
+            return `
+              <div class="reply" data-reply-index="${index}">
+                <h3>
+                  候选 ${index + 1}：${escapeHtml(item.style)}
+                  ${
+                    review
+                      ? `<span class="quality-badge ${review.passed ? "passed" : "failed"}">${review.overall_score == null ? "未评分" : `${review.overall_score} 分`}</span>`
+                      : ""
+                  }
+                </h3>
+                <textarea data-reply-text>${escapeHtml(item.text)}</textarea>
+                <p class="meta">${escapeHtml(item.reason)}</p>
+                ${item.source === "fallback" ? '<p class="meta">备用示例，发送前请确认</p>' : ""}
+                ${item.warnings?.length ? `<p class="meta">${escapeHtml(item.warnings.join("；"))}</p>` : ""}
+                ${
+                  review?.revised
+                    ? `<p class="meta">质检步骤修改了文本${review.passed ? "" : "，仍需确认"}</p>`
+                    : ""
+                }
+                ${
+                  review?.issues?.length
+                    ? `<p class="meta">注意：${escapeHtml(review.issues.join("；"))}</p>`
+                    : ""
+                }
+                <div class="feedback-actions">
+                  <button class="feedback-button regenerate-candidate" type="button" data-action="regenerate-candidate" data-candidate-index="${index}">重新生成这条</button>
+                  ${
+                    data.memory_persisted || data.memory_job_id
+                      ? `
+                        <button class="feedback-button accepted" type="button" data-feedback="accepted">采纳</button>
+                        <button class="feedback-button" type="button" data-feedback="too_ai">太 AI</button>
+                        <button class="feedback-button" type="button" data-feedback="too_long">太长</button>
+                        <button class="feedback-button" type="button" data-feedback="too_oily">太油</button>
+                        <button class="feedback-button" type="button" data-feedback="too_cold">太冷淡</button>
+                        <button class="feedback-button" type="button" data-feedback="irrelevant">答非所问</button>
+                        <button class="feedback-button" type="button" data-feedback="wrong_relation">不符合关系</button>
+                      `
+                      : `<span class="meta">临时模式不保存反馈</span>`
+                  }
+                </div>
+                <div class="feedback-status meta"></div>
+              </div>
+            `;
+          })
+          .join("");
+
+        const retrievedMemories = data.retrieved_memories || [];
+        const controls = describeControlsForDisplay(data.controls || collectReplyControls());
+        const persistenceNotice = memoryStatusText(data.memory_status);
+        const styleEvidence = data.style_evidence || {};
+        const currentStyleExamples = styleEvidence.current_examples || [];
+        const profileStyleExamples = styleEvidence.profile_examples || [];
+        const hasChatMessages = Boolean(data.extracted_chat?.messages?.length);
+        const currentStyleDescription = styleEvidence.current_user_message_count
+          ? escapeHtml(styleEvidence.current_summary || "已读取本人消息，暂未形成明显特征")
+          : "本轮没有识别到“我”的消息，因此没有从当前聊天提取语气。";
+        const stylePersistenceDescription = styleEvidence.current_user_message_count
+          ? data.memory_persisted
+            ? "本轮特征已合并到当前关系类型的本地画像。"
+            : data.memory_job_id ? "后台保存完成后才会更新累计画像。" : "本轮仅用于生成，未写入本地画像。"
+          : "本轮没有本人逐条消息，因此未更新本地画像。";
+        const memorySources = retrievedMemories.length
+          ? `<div class="memory-source-list">${retrievedMemories
+              .map(
+                (item) => `
+                  <div class="memory-source">
+                    <div class="memory-source-heading">
+                      <strong>${escapeHtml(item.topic || item.scenario_label || "历史聊天")}</strong>
+                      <span class="memory-score">相关度 ${item.relevance_score}%</span>
+                      ${item.similarity_score != null && item.time_decay_factor != null ? `<span class="meta">${item.similarity_method === "semantic" ? "语义相似度" : item.similarity_method === "lexical_fallback" ? "关键词匹配（回退）" : "关键词匹配"} ${(item.similarity_score * 100).toFixed(1)}% × 时间权重 ${(item.time_decay_factor * 100).toFixed(1)}%</span>` : ""}
+                      <span class="meta">${escapeHtml(formatDate(item.created_at))}</span>
+                    </div>
+                    <div>${escapeHtml(item.summary || "暂无概要")}</div>
+                  </div>
+                `,
+              )
+              .join("")}</div>`
+          : `<p>这次没有找到足够相关的历史片段，回复只参考本次输入和联系人稳定记忆。</p>`;
+
+        result.innerHTML = `
+          <div class="card privacy-note">
+            <strong data-memory-status>${escapeHtml(persistenceNotice)}</strong>
+            ${["pending", "running"].includes(data.memory_status) ? '<button type="button" id="cancel-memory-job" class="feedback-button">取消本轮记忆保存</button>' : ""}
+          </div>
+          ${renderBackgroundEvidence(data.background_context)}
+          ${renderWeatherEvidence(data.weather_evidence)}
+          ${
+            hasChatMessages
+              ? `
+                <div class="card">
+                  <h2>截图识别结果</h2>
+                  <p><strong>主题：</strong>${escapeHtml(data.extracted_chat.topic || "暂无")}</p>
+                  <p><strong>对方最后一条：</strong>${escapeHtml(data.extracted_chat.last_message_from_other || "暂无")}</p>
+                  <p class="meta">${escapeHtml(describeScreenshotMerge(data.extracted_chat))} · 识别置信度：${Math.round((data.extracted_chat.confidence || 0) * 100)}%</p>
+                  <div class="message-list">${messages}</div>
+                  <button id="regenerate-button" class="secondary-button" type="button">使用修正重新生成</button>
+                  ${
+                    data.extracted_chat.notes?.length
+                      ? `<p class="meta">备注：${escapeHtml(data.extracted_chat.notes.join("；"))}</p>`
+                      : ""
+                  }
+                </div>
+              `
+              : `
+                <div class="card">
+                  <h2>本次输入依据</h2>
+                  <p>未上传聊天截图，本次分析和回复仅依据用户补充的文字背景。</p>
+                  <p class="meta">概括内容不会作为双方逐字原话，也不会用于学习用户说话风格。</p>
+                </div>
+              `
+          }
+          <div class="card">
+            <h2>关系分析</h2>
+            <p><strong>语气：</strong>${escapeHtml(data.analysis.tone)}</p>
+            <p><strong>情绪：</strong>${escapeHtml(data.analysis.emotion)}</p>
+            <p><strong>态度：</strong>${escapeHtml(data.analysis.attitude)}</p>
+            <p><strong>情境概述：</strong>${escapeHtml(data.analysis.scene)}</p>
+            <p><strong>风险：</strong>${escapeHtml(data.analysis.risk_level)}</p>
+          </div>
+          <div class="card">
+            <div class="scenario-heading">
+              <h2>场景识别</h2>
+              <span class="scenario-badge">${escapeHtml(data.scenario.label)}</span>
+            </div>
+            <p><strong>回复目标：</strong>${escapeHtml(data.scenario.reply_goal)}</p>
+            <p class="meta">场景置信度：${Math.round((data.scenario.confidence || 0) * 100)}%</p>
+            ${
+              data.scenario.signals?.length
+                ? `<strong>判断信号：</strong><ul class="signal-list">${data.scenario.signals
+                    .map((item) => `<li>${escapeHtml(item)}</li>`)
+                    .join("")}</ul>`
+                : ""
+            }
+            ${
+              data.scenario.cautions?.length
+                ? `<p class="meta"><strong>注意：</strong>${escapeHtml(data.scenario.cautions.join("；"))}</p>`
+                : ""
+            }
+          </div>
+          <div class="card">
+            <h2>回复时机</h2>
+            <p><strong>${data.timing.should_reply_now ? "建议回复" : "建议先等等"}</strong></p>
+            <p>${escapeHtml(data.timing.suggested_delay)}</p>
+            <p class="meta">${escapeHtml(data.timing.reason)}</p>
+          </div>
+          <div class="card">
+            <h2>本次回复设定</h2>
+            <p><strong>意图：</strong>${escapeHtml(controls.intent)}</p>
+            <p><strong>长度：</strong>${escapeHtml(controls.length)}　<strong>亲密度：</strong>${escapeHtml(controls.intimacy)}　<strong>主动度：</strong>${escapeHtml(controls.initiative)}</p>
+            ${controls.custom ? `<p><strong>补充：</strong>${escapeHtml(controls.custom)}</p>` : ""}
+          </div>
+          <div class="card">
+            <h2>真人语气依据</h2>
+            <p><strong>本轮本人消息：</strong>${styleEvidence.current_user_message_count || 0} 条</p>
+            <p class="style-evidence-note">${currentStyleDescription}</p>
+            ${renderStylePhrases(currentStyleExamples, "本轮本人原句")}
+            <p><strong>累计画像（生成时）：</strong>${escapeHtml(styleEvidence.profile_summary || "暂无累计画像")}</p>
+            ${renderStylePhrases(profileStyleExamples, "累计本人原句")}
+            <p class="meta">只从校对后标为“我”的消息学习；对方、未知说话人和补充背景都不会进入画像。<span data-style-persistence>${stylePersistenceDescription}</span></p>
+          </div>
+          <div class="card">
+            <h2>回复策略</h2>
+            <p>${escapeHtml(data.strategy)}</p>
+          </div>
+          <div class="card">
+            <h2>
+              回复质量
+              <span data-quality-total class="quality-badge ${data.quality?.passed ? "passed" : "failed"}">${data.quality?.average_score == null ? "未评分" : `${data.quality.average_score} 分`}</span>
+            </h2>
+            <p><strong data-quality-state>${data.quality?.passed ? "质量检查通过" : "建议发送前再确认"}</strong></p>
+            <p class="meta" data-quality-summary>${escapeHtml(data.quality?.summary || "暂无质量报告")}</p>
+            ${renderDiagnostics(data.diagnostics)}
+          </div>
+          <div class="card">
+            <h2>候选回复</h2>
+            ${replies}
+          </div>
+          <div class="card">
+            <h2>本次参考的历史</h2>
+            ${memorySources}
+            <p class="meta">仅检索当前账号下这个聊天对象的本地记录；旧信息与当前聊天冲突时，以当前聊天为准。</p>
+          </div>
+          <div class="card">
+            <h2>本次参考的联系人记忆</h2>
+            <p><strong>聊天对象：</strong>${escapeHtml(data.contact_name || contactMemory.contact_name || "默认联系人")} <span class="meta">(${escapeHtml(data.contact_id || contactMemory.contact_id || "default-contact")})</span></p>
+            <p><strong>历史概要：</strong>${escapeHtml(contactMemory.summary || "首次记录，暂无历史概要")}</p>
+            <p><strong>已知事实：</strong>${escapeHtml(contactMemory.facts?.join("；") || "暂无")}</p>
+            <p><strong>互动偏好：</strong>${escapeHtml(contactMemory.interaction_preferences?.join("；") || "暂无")}</p>
+            <p class="meta">最近话题：${escapeHtml(contactMemory.last_topic || "暂无")} · 上次场景：${escapeHtml(contactMemory.last_scenario || "暂无")}</p>
+          </div>
+          <div class="card">
+            <h2>本地记忆</h2>
+            <p><strong>对话概要：</strong><span data-memory-summary>${escapeHtml(data.memory_summary || "暂无")}</span></p>
+            <p><strong>用户风格：</strong><span data-memory-style>${escapeHtml(data.style_summary || "暂无")}</span></p>
+            <p><strong>回复偏好：</strong><span id="preference-summary">${escapeHtml(data.preference_summary || "暂无")}</span></p>
+            <p><strong>风格样本：</strong><span id="style-examples-summary">${escapeHtml(data.style_examples_summary || "暂无")}</span></p>
+            <p class="meta" data-memory-record>${data.memory_persisted ? `保存记录 ID：${data.saved_memory_id ?? "-"}` : data.memory_job_id ? "任务已排队，尚未完成记忆更新" : "本轮未更新长期记忆"}</p>
+          </div>
+        `;
+        loadContacts();
+        result.querySelectorAll("[data-feedback]").forEach(button => { button.disabled = !data.memory_persisted; });
+        const pollToken = ++memoryPollToken;
+        if (["pending", "running"].includes(data.memory_status)) {
+          pollMemory(data, pollToken);
+          document.getElementById("cancel-memory-job")?.addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+              const response = await fetch(`/api/memory-jobs/${encodeURIComponent(data.memory_job_id)}?user_id=${encodeURIComponent(data.user_id || "default")}`, {method: "DELETE"});
+              if (!response.ok) throw new Error("任务可能已完成，请查看保存状态或在管理页删除记忆。");
+              if (latestResponse === data) updateMemoryStatus(data, {status: "cancelled", memory_persisted: false});
+            } catch (error) {
+              if (latestResponse === data) result.querySelector("[data-memory-status]").textContent = error.message;
+              button.disabled = false;
+            }
+          });
+        }
+      }
+
+      function memoryStatusText(status) {
+        return {pending: "回复已生成，记忆等待后台保存。", running: "回复已生成，记忆正在后台整理。",
+          completed: "本轮记忆已保存，可在管理页查看或删除。", failed: "后台记忆更新失败，本轮未保存；可重新生成后再试。",
+          cancelled: "本轮记忆保存已取消或记录已删除。", disabled: "本轮未更新长期记忆（临时模式或未完成真实生成）。"}[status] || "尚未保存";
+      }
+
+      function updateMemoryStatus(data, state) {
+        data.memory_status = state.status;
+        data.memory_persisted = state.memory_persisted;
+        data.saved_memory_id = state.saved_memory_id ?? null;
+        result.querySelector("[data-memory-status]").textContent = memoryStatusText(state.status);
+        result.querySelector("[data-memory-record]").textContent = state.memory_persisted ? `保存记录 ID：${state.saved_memory_id}` : memoryStatusText(state.status);
+        result.querySelectorAll("[data-feedback]").forEach(button => { button.disabled = !state.memory_persisted; });
+        if (!["pending", "running"].includes(state.status)) document.getElementById("cancel-memory-job")?.remove();
+        if (state.memory_persisted) {
+          data.memory_summary = state.memory_summary;
+          data.style_summary = state.style_summary;
+          result.querySelector("[data-memory-summary]").textContent = state.memory_summary || "暂无";
+          result.querySelector("[data-memory-style]").textContent = state.style_summary || "暂无";
+          if (data.style_evidence?.current_user_message_count) result.querySelector("[data-style-persistence]").textContent = "本轮特征已在后台合并到累计画像。";
+          loadContacts();
+        }
+      }
+
+      async function pollMemory(data, token) {
+        for (let attempt = 0; attempt < 180; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          if (token !== memoryPollToken || latestResponse !== data || !["pending", "running"].includes(data.memory_status)) return;
+          try {
+            const response = await fetch(`/api/memory-jobs/${encodeURIComponent(data.memory_job_id)}?user_id=${encodeURIComponent(data.user_id || "default")}`);
+            const state = response.status === 404 ? {status: "cancelled", memory_persisted: false} : await response.json();
+            if (token !== memoryPollToken || latestResponse !== data || !["pending", "running"].includes(data.memory_status)) return;
+            if (!response.ok && response.status !== 404) continue;
+            updateMemoryStatus(data, state);
+            if (!["pending", "running"].includes(state.status)) return;
+          } catch (_) { /* A transient polling failure must not overwrite edited replies. */ }
+        }
+        if (token === memoryPollToken && latestResponse === data) result.querySelector("[data-memory-status]").textContent = "暂未确认保存结果，任务仍可在后台执行；稍后在管理页查看。";
+      }
+
+      async function submitReplyFeedback(button) {
+        if (!latestResponse) {
+          return;
+        }
+
+        const replyCard = button.closest("[data-reply-index]");
+        const index = Number(replyCard.dataset.replyIndex);
+        const textarea = replyCard.querySelector("[data-reply-text]");
+        const status = replyCard.querySelector(".feedback-status");
+        const original = latestResponse.replies[index] || {};
+        const previousLabel = button.textContent;
+
+        button.disabled = true;
+        button.textContent = "保存中...";
+        status.textContent = "";
+
+        try {
+          const response = await fetch("/api/reply/feedback", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              relation_type: latestResponse.relation_type,
+              user_id: latestResponse.user_id || "default",
+              feedback_type: button.dataset.feedback,
+              candidate_index: index,
+              candidate_text: original.text || "",
+              edited_text: textarea.value.trim(),
+              memory_id: latestResponse.saved_memory_id,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(await readError(response));
+          }
+
+          const data = await response.json();
+          latestResponse.preference_summary = data.preference_summary;
+          latestResponse.style_examples_summary = data.style_examples_summary;
+          status.textContent = `已保存反馈 #${data.feedback_id}`;
+          const preferenceBox = result.querySelector("#preference-summary");
+          if (preferenceBox) {
+            preferenceBox.textContent = data.preference_summary || "暂无";
+          }
+          const styleExamplesBox = result.querySelector("#style-examples-summary");
+          if (styleExamplesBox) {
+            styleExamplesBox.textContent = data.style_examples_summary || "暂无";
+          }
+        } catch (error) {
+          status.textContent = `保存失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+          button.textContent = previousLabel;
+        }
+      }
+
+      async function regenerateCandidate(button) {
+        if (!latestResponse) return;
+        const index = Number(button.dataset.candidateIndex);
+        if (!Number.isInteger(index) || index < 0 || index > 2) return;
+
+        syncEditedReplyTexts();
+        const previousLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = "生成中...";
+
+        try {
+          const response = await fetch("/api/reply/regenerate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              relation_type: latestResponse.relation_type,
+              user_id: latestResponse.user_id || "default",
+              contact_id: latestResponse.contact_id,
+              contact_name: latestResponse.contact_name,
+              extracted_chat: latestResponse.extracted_chat,
+              background_context: latestResponse.background_context || "",
+              analysis: latestResponse.analysis,
+              scenario: latestResponse.scenario,
+              existing_replies: latestResponse.replies,
+              candidate_index: index,
+              controls: latestResponse.controls || collectReplyControls(),
+            }),
+          });
+          if (!response.ok) throw new Error(await readError(response));
+
+          const data = await response.json();
+          latestResponse.replies[index] = data.reply;
+          latestResponse.diagnostics = data.diagnostics;
+          latestResponse.weather_evidence = [...(latestResponse.weather_evidence || []), ...(data.weather_evidence || [])].slice(-6);
+          updateSingleQuality(data.quality, index);
+          renderResult(latestResponse);
+          const updatedCard = result.querySelector(`[data-reply-index="${index}"]`);
+          if (updatedCard) {
+            updatedCard.querySelector(".feedback-status").textContent = "已重新生成这一条，未重复写入记忆";
+          }
+        } catch (error) {
+          const card = button.closest("[data-reply-index]");
+          card.querySelector(".feedback-status").textContent = `重新生成失败：${error.message}`;
+          button.disabled = false;
+          button.textContent = previousLabel;
+        }
+      }
+
+      function syncEditedReplyTexts() {
+        result.querySelectorAll("[data-reply-index]").forEach((card) => {
+          const index = Number(card.dataset.replyIndex);
+          const textarea = card.querySelector("[data-reply-text]");
+          if (latestResponse.replies[index] && textarea) {
+            const edited = textarea.value.trim();
+            if (edited !== latestResponse.replies[index].text) {
+              latestResponse.replies[index].text = edited;
+              updateSingleQuality({candidate_index: index, overall_score: null, status: "not_reviewed", passed: false, issues: ["手动编辑后需重新质检"]}, index);
+            }
+          }
+        });
+      }
+
+      function updateSingleQuality(quality, index) {
+        const report = latestResponse.quality || { items: [] };
+        const items = (report.items || []).filter((item) => item.candidate_index !== index);
+        items.push(quality);
+        items.sort((left, right) => left.candidate_index - right.candidate_index);
+        report.items = items;
+        report.average_score = items.length === 3 && items.every((item) => item.overall_score != null)
+          ? Math.round(items.reduce((sum, item) => sum + item.overall_score, 0) / items.length)
+          : null;
+        report.passed = items.length === 3 && items.every((item) => item.passed);
+        report.status = report.average_score == null ? "partial" : "reviewed";
+        report.summary = report.average_score == null
+          ? "部分候选尚未完成质检，不计算整体均分。"
+          : `当前平均 ${report.average_score} 分。`;
+        latestResponse.quality = report;
+      }
+
+      function renderWeatherEvidence(evidence) {
+        if (!evidence?.length) return "";
+        const range = (value, unit) => value?.min != null && value?.max != null
+          ? `${escapeHtml(String(value.min))} ~ ${escapeHtml(String(value.max))} ${unit}` : "未获取";
+        const labels = {ok: "已获取", partial: "部分数据可用", needs_clarification: "地点需确认", not_found: "地点未找到",
+          unavailable: "查询未完成", unsupported_date: "日期超出支持范围", invalid_arguments: "查询条件有误", disabled: "查询已关闭"};
+        const periods = {day: "全天", morning: "上午", afternoon: "下午", evening: "晚间"};
+        return `<div class="card"><h2>天气依据</h2>${evidence.map(item => {
+          const data = item.result || {};
+          const location = data.location || {};
+          const ranges = data.period_ranges || {};
+          const air = data.air_quality?.period_ranges || {};
+          const place = [location.name, location.admin1, location.country].filter(Boolean).join(" · ");
+          const usable = ["ok", "partial"].includes(data.status);
+          return `<details open><summary>${escapeHtml(place || "天气查询")} · ${escapeHtml(labels[data.status] || "未确认")}</summary>
+            ${data.message ? `<p>${escapeHtml(data.message)}</p>` : ""}
+            ${data.locations?.length ? `<p>候选地点：${escapeHtml(data.locations.map(place => [place.name, place.admin1, place.country].filter(Boolean).join(" / ")).join("；"))}</p>` : ""}
+            ${usable ? `<p>${escapeHtml(data.forecast_date || "")} ${escapeHtml(periods[data.period] || "")}（当地时间 ${escapeHtml(data.period_hours_local || "")}）</p>
+              <p>温度：${range(ranges.temperature_2m, "°C")}；体感：${range(ranges.apparent_temperature, "°C")}；湿度：${range(ranges.relative_humidity_2m, "%")}</p>
+              <p>风速：${range(ranges.wind_speed_10m, "m/s")}；阵风：${range(ranges.wind_gusts_10m, "m/s")}；降水概率：${range(ranges.precipitation_probability, "%")}</p>
+              <p>PM2.5：${range(air.pm2_5, "µg/m³")}；PM10：${range(air.pm10, "µg/m³")}；美国 AQI：${range(air.us_aqi, "")}</p>
+              <p class="meta">模型估计/预报，并非实测或官方预警；美国 AQI 不等于中国 AQI。空缺不是零。</p>
+              <p class="meta">获取时间：${escapeHtml(data.fetched_at || "未提供")}${data.cached ? "（短时缓存）" : ""}</p>
+              <p class="meta">来源：<a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> · <a href="https://ads.atmosphere.copernicus.eu/" target="_blank" rel="noopener noreferrer">CAMS</a> · <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a></p>` : ""}
+            ${data.warnings?.length ? `<p class="meta">${escapeHtml(data.warnings.join("；"))}</p>` : ""}
+          </details>`;
+        }).join("")}</div>`;
+      }
+
+      function renderDiagnostics(diagnostics) {
+        if (!diagnostics?.stages) return "";
+        const labels = {analysis: "情绪分析", scenario: "场景判断", "context.load": "上下文读取", "memory.retrieve": "历史检索", "reply.generate": "候选生成", "reply.understand_generate": "理解与生成", "reply.regenerate": "单条重生成", "quality.review": "质量检查", "quality.targeted": "定向检查", "quality.single": "单条质量检查", "memory.enqueue": "记忆任务排队", "memory.contact": "联系人记忆", "memory.summary": "概要保存", "memory.episode": "历史片段保存", "style.learn": "风格学习", "model.text": "文本模型调用", "model.vision": "视觉模型调用"};
+        return `<details><summary>本次操作耗时 ${(diagnostics.total_ms / 1000).toFixed(2)} 秒</summary>
+          <p class="meta">请求编号：${escapeHtml(diagnostics.request_id)}。模型调用包含在所属步骤内，耗时不可直接相加。</p>
+          <ul>${diagnostics.stages.map((item) => `<li>${escapeHtml(item.stage === "tool.weather" ? "MCP 天气查询" : item.stage.endsWith(".round") ? "模型单轮请求" : labels[item.stage] || item.stage)}：${(item.duration_ms / 1000).toFixed(2)} 秒${item.status === "error" ? "（调用异常）" : item.status === "skipped" ? "（未调用模型）" : ""}</li>`).join("")}</ul></details>`;
+      }
+
+      function buildCorrectedPayload() {
+        const correctedChat = collectEditedChat(latestResponse.extracted_chat);
+        return buildChatPayload(
+          correctedChat,
+          latestResponse.relation_type,
+          latestResponse.contact_id,
+          form.elements.contact_name.value || latestResponse.contact_name,
+        );
+      }
+
+      function collectEditedChat(baseChat) {
+        const correctedChat = structuredClone(baseChat);
+        const rows = Array.from(result.querySelectorAll("[data-message-index]"));
+
+        correctedChat.messages = rows.map((row) => {
+          const index = Number(row.dataset.messageIndex);
+          const original = baseChat.messages[index] || {};
+          return {
+            ...original,
+            speaker: row.querySelector('[data-field="speaker"]').value,
+            side: row.querySelector('[data-field="side"]').value,
+            text: row.querySelector('[data-field="text"]').value.trim(),
+            time: original.time || null,
+          };
+        }).filter((item) => item.text);
+
+        correctedChat.last_message_from_other = "";
+        correctedChat.messages.forEach((item) => {
+          if (item.speaker === "other") {
+            correctedChat.last_message_from_other = item.text;
+          }
+        });
+        return correctedChat;
+      }
+
+      function buildChatPayload(extractedChat, relationType, contactId, contactName) {
+        return {
+          relation_type: relationType,
+          user_id: new FormData(form).get("user_id") || "default",
+          contact_id: contactId || "default-contact",
+          contact_name: contactName || "",
+          extracted_chat: extractedChat,
+          background_context: getBackgroundContext(),
+          controls: collectReplyControls(),
+          save_to_memory: form.elements.save_to_memory.checked,
+        };
+      }
+
+      function collectReplyControls() {
+        return {
+          intent: form.elements.reply_intent.value,
+          custom_intent: form.elements.custom_intent.value.trim(),
+          length_preference: form.elements.length_preference.value,
+          intimacy_level: Number(form.elements.intimacy_level.value),
+          initiative_level: Number(form.elements.initiative_level.value),
+        };
+      }
+
+      function describeControlsForDisplay(controls) {
+        const intentLabels = {
+          auto: "让系统判断",
+          agree: "答应 / 接受",
+          decline: "拒绝 / 婉拒",
+          comfort: "安慰对方",
+          explain: "解释清楚",
+          advance: "主动推进",
+          cool_down: "先降温",
+          end_topic: "结束话题",
+          ask_clarify: "问清楚",
+        };
+        const lengthLabels = { very_short: "很短", short: "短句", normal: "稍完整" };
+        const intimacyLabels = { 1: "克制", 2: "自然", 3: "更亲近" };
+        const initiativeLabels = { 1: "只回应", 2: "自然接话", 3: "主动推进" };
+        return {
+          intent: intentLabels[controls.intent] || controls.intent,
+          custom: controls.custom_intent || "",
+          length: lengthLabels[controls.length_preference] || controls.length_preference,
+          intimacy: intimacyLabels[controls.intimacy_level] || controls.intimacy_level,
+          initiative: initiativeLabels[controls.initiative_level] || controls.initiative_level,
+        };
+      }
+
+      function chatWasEdited(originalChat, editedChat) {
+        if (originalChat.messages.length !== editedChat.messages.length) {
+          return true;
+        }
+        return originalChat.messages.some((item, index) => {
+          const edited = editedChat.messages[index] || {};
+          return item.speaker !== edited.speaker
+            || item.side !== edited.side
+            || item.text.trim() !== String(edited.text || "").trim();
+        });
+      }
+
+      function createErrorBox(message) {
+        const box = document.createElement("div");
+        box.className = "card error";
+        box.textContent = message;
+        return box;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function formatDate(value) {
+        if (!value) return "";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return new Intl.DateTimeFormat("zh-CN", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(date);
+      }
+
+      function renderStylePhrases(phrases, label) {
+        if (!phrases?.length) return "";
+        return `
+          <div class="meta"><strong>${escapeHtml(label)}：</strong></div>
+          <div class="style-evidence-list">
+            ${phrases.map((phrase) => `<span class="style-evidence-phrase">${escapeHtml(phrase)}</span>`).join("")}
+          </div>
+        `;
+      }
+
+      function renderBackgroundEvidence(context, compact = false) {
+        const value = String(context || "").trim();
+        if (!value) return "";
+        if (compact) {
+          return `
+            <div class="review-banner">
+              <strong>同时参考补充背景</strong>
+              <p class="background-evidence">${escapeHtml(value)}</p>
+              <span class="meta">这是概括性说明；与截图消息冲突时以截图为准。</span>
+            </div>
+          `;
+        }
+        return `
+          <div class="card">
+            <h2>补充聊天背景</h2>
+            <p class="background-evidence">${escapeHtml(value)}</p>
+            <p class="meta">由用户提供的概括，仅用于补足来龙去脉，不视为双方逐字原话，也不会用于学习用户说话风格。</p>
+          </div>
+        `;
+      }
+    </script>
+  </body>
+</html>
