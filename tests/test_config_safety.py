@@ -11,6 +11,7 @@ from chat_reply_agent.config import Settings
 class ConfigurationSafetyTests(TestCase):
     def test_embedding_provider_timeout_and_secret_serialization(self) -> None:
         for config in ({"memory_embedding_provider": "unknown"},
+                       {"memory_embedding_fallback": "silent"},
                        {"memory_embedding_timeout_seconds": 0},
                        {"memory_embedding_timeout_seconds": 121}):
             with self.subTest(config=config), self.assertRaises(ValidationError):

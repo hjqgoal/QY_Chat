@@ -2,6 +2,152 @@
 
 面向个人聊天场景的 AI 回复辅助 Agent。当前 v0.22 是本地 FastAPI Web 应用：用户可以上传 1-6 张连续微信聊天截图、只填写概括性聊天背景，或同时使用两者。截图会先经过识别和人工校对，再与补充背景一起进入语气、情绪、态度和场景分析，最终生成回复时机、回复策略和 3 条候选回复。系统只从校对后标记为“我”的逐条消息学习本人语气；对方消息和概括性背景不会进入用户风格画像。
 
+## 面试展示基线（2026-10-23）
+
+本轮验收：247 项后端测试、4 组前端检查及桌面/手机浏览器回归通过；真实语义 RAG、人工校对后生成、后台记忆、天气工具及评估修订流程已检查。修复了“北京市”全称导致天气漏查的问题。按用户选择保留当前 OCR，截图必须人工校对；不是免校对自动识别或生产级系统。
+
+详见 [最终验收记录与风险](docs/release-acceptance-2026-10-23.md) 和 [代码阅读路线](docs/code-reading-guide.md)。建议据此冻结功能，先准备演示和代码讲解。
+
+## 语义向量 RAG 配置（2026-10-23）
+
+现在可以在真实 `.env` 独立配置 Embedding API，不会自动复用聊天密钥。百炼 `dashscope` 模式已适配你选择的 `qwen3-vl-embedding`：自动走原生多模态向量接口，为每段文字分别生成向量，现有兼容基础地址无需修改。保留 `text-embedding-v4` 等兼容接口模型和本地模型选项。严格模式 `MEMORY_EMBEDDING_FALLBACK=error` 在向量失败时明确报错；允许降级时也会返回本次真实检索方式，包括零召回结果。示例文件不保存真实密钥。
+
+配置与验收见 [语义记忆配置指南](docs/semantic-memory-setup.md)。填好后运行 `python scripts/check_embedding_connection.py --live`，仅用合成文本验证向量、排序和上下文注入；有费用，不读写个人数据库。未加 `--live` 仅检查配置。只有真实检测通过后才能说 API 已连通。无需数据库迁移、新增依赖或本地模型下载；当前仍是按请求计算向量，不是持久化向量索引。
+
+## 面试前检查（2026-10-22）
+
+最新验收与演示步骤见 [面试展示检查报告](docs/interview-readiness.md)。本轮补充上传大小/解码校验，确保关系 Skill 正文实际加载；OCR 异常不再当聊天文本继续处理，识别自报分数与语义检索降级状态也作了明确提示。
+
+新增依赖 `Pillow==13.0.0`；本次 `my_demo1` 已安装，其他环境需重新安装 `requirements.txt`。无需数据库迁移，不改真实 `.env` 或个人聊天数据。218 项离线测试通过；人工校对后的真实生成、后台评估和记忆保存通过，但当前视觉模型出现说话人错误及非法 JSON，尚未通过本次端到端验收。不能保证现场识图稳定，建议优先展示文字入口并保留人工校对。
+
+以下各节记录历史版本行为，当前功能及验证边界以本节和检查报告为准。
+
+## 评估超时与一次性修订（2026-10-20）
+
+本节替代下方历史版本的评估流程。无新增依赖、无数据库迁移；不修改真实 `.env`，不重写个人记忆。
+
+### 当前流程
+
+1. 生成草稿后，**每轮都提交整组独立评估**，不是只有冲突场景才评估。普通聊天先显示未评估草稿；冲突、道歉、边界、中高风险、明确拒绝/降温或说话人未确认时，页面先隐藏候选，等任务结束再展示。服务端仍异步返回草稿，这个展示控制不是 API 安全边界。
+2. 评审只看原始聊天、明确背景、关系、用户意图及相关记忆/天气依据，不看生成者的解释。每维必须有依据并逐字绑定原文。评估、修订、复评沿用 `MODEL_STRUCTURED_OUTPUT` 请求结构化输出，再由本地校验；无效结果不会补默认分。
+3. 有明确缺陷、候选作用重复，或内部参考分低于 `QUALITY_REPAIR_THRESHOLD`（默认 80）时，**最多一次定向修订，再独立复评一次**。分数由有效五档维度换算；缺少本人样本时不计风格维度，核心维度缺失或关键条件不确定时不计算分数。未知/超时不等于低分，硬伤不能被平均分抵消。阈值未经人类偏好校准，不代表成功率，在线仍不展示百分制徽章。
+4. 改进版单独展示，只有整组复评通过后才允许点击“使用这条改进版”。轮询不改原稿、光标或用户编辑；原稿后来有改动时不能直接套用旧改进版。显式使用一条后，原候选组的差异评价失效，可再评估当前组合。
+5. 修订或复评失败时保留已完成的原稿评价，不发布未验证改进版。仍不合格时明确标记，不继续循环。**超时任务结束，不会在后台自动重试**；已发出的网络请求可能仍在收尾，但迟到结果丢弃。相同未结束任务复用，避免反复点击叠加调用。
+
+质量流程一般一次评审，有问题时最多三次模型调用（评审、修订、复评），另计生成、记忆或天气调用。重启会丢失内存中的评估任务。只读评审角色不改字；在线队列现在可另行发起修订，离线评测仍只读。**没有更换首次生成的模型，也没有关闭其推理能力。**
+
+### 时间与诊断
+
+排队、单阶段、总流程分别计时。失败后页面保留已取得的耗时、排队时间、任务编号、模型用量和具体错误类型，区分请求超时、排队超时、总预算耗尽、限流、认证、输出截断或格式不合格。格式错误只记录固定字段路径与错误类型，不记录聊天、模型原文或密钥。
+
+以下默认值已生效；需要调整时才添加到真实 `.env` 并重启：
+
+```dotenv
+QUALITY_TIMEOUT_SECONDS=90
+QUALITY_QUEUE_TIMEOUT_SECONDS=30
+QUALITY_TOTAL_TIMEOUT_SECONDS=240
+QUALITY_REPAIR_ENABLED=true
+QUALITY_REPAIR_THRESHOLD=80
+QUALITY_THINKING_BUDGET=2048
+QUALITY_MAX_COMPLETION_TOKENS=6144
+```
+
+- `QUALITY_TIMEOUT_SECONDS`：每个模型阶段的预算，5-300 秒，独立于通用 `MODEL_TIMEOUT_SECONDS`，不扣除排队时间。
+- `QUALITY_QUEUE_TIMEOUT_SECONDS`：等待线程的预算，1-120 秒；到期未执行的任务不再调用模型。
+- `QUALITY_TOTAL_TIMEOUT_SECONDS`：实际开始评估起算的总预算，5-600 秒；后续阶段使用剩余时间。
+- 最后两项只作用于评估/修订/复评，且仅对代码支持的百炼 Qwen3.8-Max/Flash、Qwen3.7-Max/Plus/Flash 系列发送。其他服务不发送百炼专有参数。保留推理，用显式预算限制消耗；输出预算包含推理和正文，实际推理上限不超过总量一半以留出正文空间。
+- 减小预算可能影响评审判断，需要真实样例校准，不能保证固定秒数。已经发出的上游请求不能强制撤回，取消不能保证撤销费用。
+
+参数语义参考[百炼深度思考文档](https://help.aliyun.com/zh/model-studio/deep-thinking/)及[兼容接口文档](https://www.alibabacloud.com/help/zh/model-studio/qwen-api-via-openai-chat-completions)。原有超时的唯一原因不能从截图确定；应结合本轮诊断区查看具体阶段和错误。
+
+### 验证与启动
+
+本次通过 205 项后端离线测试、4 组前端检查，以及 1280px/390px 浏览器回归。真实接口先出现“约 48 秒返回但结构不合格”；补上结构化约束后，另一次合成短对话由当前 `qwen3.8-max` 在约 34.95 秒完成，三条候选均取得合法原文评价，校验错误为空。这是单次接口验证，不是对所有场景耗时或评审正确率的保证；真实模型的修订与复评整条链路尚未进行付费验收，该链路已由离线测试覆盖。
+
+```bash
+cd /Users/jiaqihong/Desktop/QY_Chat
+conda activate my_demo1
+python scripts/run_tests.py
+node tests/test_frontend_quality_async.cjs
+node tests/test_frontend_quality.cjs
+node tests/test_frontend_topic.cjs
+node tests/test_frontend_memory.cjs
+# 停止原服务后重新启动，并刷新浏览器
+python -m uvicorn chat_reply_agent.main:app --host 127.0.0.1 --port 8000
+```
+
+可选真实接口诊断：`python scripts/check_quality_model.py --live`。只发送合成短对话、调用一次当前评审模型，**会产生费用**；不读写聊天数据库、不触发修订，不打印密钥或聊天正文。未加 `--live` 时不会调用模型。
+
+可选浏览器回归：`node tests/test_frontend_quality_browser.cjs`，需要本机已有 Playwright/Chrome，可用 `PLAYWRIGHT_MODULE` 指定库路径。模拟接口覆盖桌面/手机布局、原稿编辑保护、高风险展示等待、修订阶段、明确采用、取消和超时诊断。
+
+## 后台只读评估（2026-10-19，历史行为）
+
+以下为前一版记录；评估预算、修订及候选展示方式以 2026-10-20 一节为准。
+
+- **先返回回复，再等待评估结果**：每次模型生成整组回复、单条重生成后，都提交一次整组只读评估，不再依赖低风险/高风险筛选。前台不等待评审完成，不再通过在线质检自动替换候选文字。备用占位示例不送评。
+- 初始显示“后台评估中”，随后更新为“基本可用 / 建议调整 / 信息不足”等辅助判断，并给出逐维依据和候选差异。任务“完成”不等于回复“通过”；失败、取消、超时、队列满均明确显示，可点“评估当前回复”重试。评估仍可能出错，不是客观准确率，也不显示百分制总分。
+- 后台结果只更新评价区域，不重绘输入框、不改候选、光标或用户编辑。任务绑定候选原文和当前请求；修改过的候选显示“已编辑，待确认”，其他未改候选仍可获得评价。手动重评使用当前文字，不重新生成，不保存记忆。
+- 页面分别展示本次生成耗时和后台评估耗时（含单独的排队时间）。首次等待减少的是串行评估，不代表生成模型变快，也不是把历史记忆当成回复缓存。每轮仍多一次评审调用，会产生相应费用；共享模型服务的并发/限流仍可能影响实际延迟。
+- 沿用 `OPENAI_REVIEW_MODEL_NAME`；未单独配置时使用现有强模型。评审只看原始聊天、用户背景、关系规则、相关记忆、本人风格证据、回复要求和天气依据，不看生成者的解释。无需新增模型或修改真实 `.env`。
+- 评估任务仅保存在进程内存中，不写 SQLite，因此临时模式也可以评估而不持久化聊天。最多 2 个并发评审、16 个活动任务、64 个保留结果，终态任务保留最多约 10 分钟，达到容量时可能提前清理。重启后任务失效，页面提示重新评估；这不是持久化的分布式任务队列。
+- `QUALITY_TIMEOUT_SECONDS` 默认 90 秒，可在 `.env` 配置为 5-300 秒，覆盖排队和评估等待。到期结果不再采用；正在进行的上游网络请求不能强制撤回，只能依赖请求超时收尾。取消同样会丢弃迟到结果，但不能保证撤销已经发生的调用费用。
+- 新增 `POST /api/quality-jobs`、`GET /api/quality-jobs/{job_id}` 和 `DELETE /api/quality-jobs/{job_id}`。读取/取消需匹配 `user_id`；它只是本地账号隔离，不是互联网身份认证。继续使用本地单进程启动方式，不应直接开放到公网。
+- 离线评测仍保持只读比较模式；旧的定向修订函数保留给离线回归，不在在线生成链路中执行。此前章节描述的“按需同步复核”已被本节替代。
+
+无新增依赖，无数据库迁移，不改动个人记忆。**重启 FastAPI 并刷新页面后，重新生成一轮即可使用。** 验证使用模拟模型和隔离数据库，没有调用真实付费接口；实际评估质量、用时和费用仍需在你的模型上观察。
+
+```bash
+python scripts/run_tests.py
+node tests/test_frontend_quality_async.cjs
+node tests/test_frontend_quality.cjs
+node tests/test_frontend_topic.cjs
+node tests/test_frontend_memory.cjs
+```
+
+可选浏览器回归：本机已有 Playwright 和 Chrome 时，运行 `node tests/test_frontend_quality_browser.cjs`。可通过 `PLAYWRIGHT_MODULE` 指定 Playwright 路径、`BROWSER_CHANNEL` 选择浏览器；测试仅使用模拟 HTTP 响应，覆盖 1280px/390px 布局、输入保护、重评和取消。
+
+## 对话主题修正（2026-10-19）
+
+- 识图仅提取可见消息，不再让视觉模型顺带决定主题。校对页面显示“待结合校对内容与补充背景分析”，识别置信度也不代表对主题理解的把握。
+- 现有强模型在同一次“理解与生成”调用中输出 `topic`，综合已校对消息与用户背景，保留核心事件、重要限制和当前进展。区分已发生、计划、条件方案和拒绝；可能的情绪留在分析中，不写成主题事实。
+- 新主题在结果页标为“主题（模型概括）”，包括仅文字背景输入；信息不足时显示“暂无法概括”。不通过固定关键词把主题替换成模板，也不保证每次模型概括都正确。
+- 聊天原文及本轮检索查询不再混入模型主题、识别备注或客户端缓存的“最后一条”。修改文字、说话人或背景会清除旧主题；上下文变更后需重新生成整组回复，不能用旧分析只重生成单条。
+- 移除旧主题后，修正词面检索对未见查询片段的过高权重，让“火锅几点去呀”这类短追问不必依赖额外拼接主题才能召回相关记录。不改变时间衰减公式、相关性阈值或联系人隔离。
+- 本轮后台记忆使用新主题；用户风格仍仅从本人消息学习。历史 SQLite 数据和已排队的旧任务不自动迁移或重写；已有错误记忆可在管理页人工校正或删除。
+- 强模型结构化结果新增必填字符串 `topic`（最多 120 字，允许空字符串表示信息不足）；缺失或格式错误仍按生成失败处理，不保存本轮记忆。API 的 `extracted_chat` 增加 `topic_source: pending | context`，该字段只是展示来源，不作为事实可信度或用户确认标记。
+- 将“算了算了你去玩”样例的补充背景纳入评测输入，补充主题事实边界要求。离线测试使用模拟模型，验证上下文传递、旧摘要隔离、调用次数和记忆保存；不是对真实模型语义正确率的证明。
+
+无新增依赖，无需修改 `.env` 或迁移数据库。重启服务、刷新页面，再用原截图与背景重新生成。合理主题应表达“已有安排无法应邀，提出有条件临时补位后对方表示不用”，不要求逐字一致。
+
+```bash
+python scripts/run_tests.py
+node tests/test_frontend_topic.cjs
+node tests/test_frontend_quality.cjs
+node tests/test_frontend_memory.cjs
+```
+
+## 回复评估修正（2026-10-18）
+
+- 在线候选不再显示未经校准的百分制分数，改为“基本可用 / 建议调整 / 信息不足 / 已修改，待确认 / 仅本地检查”。这仍是辅助判断，不保证对方的反应。
+- 新增 `chat_reply_agent/skills/reply-quality-review/SKILL.md` 和 `references/rubric.md`。复核服务实际加载正文、分档和边界例子，检查事实与承诺、情绪分寸、关系和本人风格。可编辑这两份文件后重启服务调整规范。
+- 复核只评价输入原文，必须返回完全匹配的 `evaluated_text` 和逐维依据；缺项、错配或无依据不通过。修改后的文本不继承评分和评价；不额外调用模型给自己的修改“验收”。
+- 不给评审传入生成者的分析结论、候选理由和风格标签。评审可以使用原始聊天、关系、用户意图、相关记忆及天气证据；未知情绪不能当事实。没有本人风格样本时，该维度留空。
+- 用本地文字重叠提示可能重复的候选，在现有批量复核中判断接话作用是否相同。本地检测不是语义模型，可能漏掉用词完全不同的同义句；“没有命中”不会被显示成“已验证有差异”。
+- 在线依然是无风险时零次额外复核，有目标时至多一次批量复核，没有新增串行评分调用。规范与证据会增加单次提示和输出长度，实际延迟需在你的模型上测量。
+- 手动编辑或单条重生成会使旧的组内差异判断失效。历史记录不改写，旧分数显示为“历史评价，未校准”。SQLite 无需迁移，真实 `.env` 无需修改。
+- 离线评测沿用只读模式，显示“参考分（未校准）”；四项核心维度缺失、有明确硬伤或关键不确定性时不计总分。缺少风格样本时仅计算四项核心维度，不能当成五项都已验证。评分通过还要求候选组有实质差异。
+- 用户提供的“算了算了你去玩”已加入核心评测集，关系按朋友作测试假设。它用于回归，不是唯一正确答案，也不应同时用作独立的保留测试集。后续需要持续积累人工偏好和未参与提示词编写的样例，才能判断评分与人的偏好是否一致。
+
+本次无新增依赖。重启 FastAPI 并刷新页面后重新生成即可；没有自动重跑旧聊天。
+
+离线验证（临时数据库、禁用真实模型调用，不读写个人记忆）：
+
+```bash
+python scripts/run_tests.py
+node tests/test_frontend_memory.cjs
+node tests/test_frontend_quality.cjs
+```
+
 ## v0.22 MCP 天气工具
 
 使用官方 MCP Python SDK，新增独立的 `chat_reply_agent.mcp_server`（stdio 服务）及 `get_weather` 只读工具。**不是把 HTTP 函数换个名字叫 MCP**：应用通过 `initialize → tools/list → tools/call` 连接本地服务，由服务查询 Open-Meteo；强模型发出原生 tool call，收到 `role=tool` 的查询结果后继续生成最终回复。
@@ -454,7 +600,7 @@ v0.14 不再只把联系人总概要整体交给模型，而是把每轮已确�
 
 当前采用 SQLite 保存记忆、按请求计算相似度的轻量 RAG。支持本地模型或阿里云百炼 Embedding API：
 
-- `MEMORY_EMBEDDING_PROVIDER=local` 使用本地模型；`dashscope` 使用百炼 API。两者均计算归一化向量的余弦相似度，失败时回退到中文字符二元组和三元组匹配，并标记 `lexical_fallback`。
+- `MEMORY_EMBEDDING_PROVIDER=local` 使用本地模型；`dashscope` 使用百炼 API；`openai_compatible` 使用其他兼容接口。均计算归一化向量的余弦相似度。失败策略由 `MEMORY_EMBEDDING_FALLBACK` 决定：`error` 报错，`lexical` 才降级并标记 `lexical_fallback`。
 - 时间权重乘在相似度上，不再叠加关系、场景或新近度奖励。场景可决定记忆的衰减速度。
 - 选择百炼 API 时，当前检索文本与同一联系人的候选历史话题/摘要会发送至阿里云；SQLite 记忆和排序留在本机。选择本地模型时，需额外安装依赖并预先下载模型。
 - 最多读取当前联系人最近 60 条候选，最终只向生成模型提供 3 条，控制 Prompt 长度。
@@ -505,19 +651,21 @@ MEMORY_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-
 ```dotenv
 MEMORY_SIMILARITY_BACKEND=semantic
 MEMORY_EMBEDDING_PROVIDER=dashscope
-MEMORY_EMBEDDING_MODEL=text-embedding-v4
-MEMORY_EMBEDDING_BASE_URL=
+MEMORY_EMBEDDING_MODEL=qwen3-vl-embedding
+MEMORY_EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 MEMORY_EMBEDDING_API_KEY=
+MEMORY_EMBEDDING_REUSE_CHAT_CREDENTIALS=false
+MEMORY_EMBEDDING_FALLBACK=error
 MEMORY_EMBEDDING_TIMEOUT_SECONDS=20
 ```
 
-空的 Embedding 地址和密钥复用现有 `OPENAI_BASE_URL` / `OPENAI_API_KEY`，要求它们属于阿里云百炼；也可单独配置同地域的百炼 Embedding 地址和密钥。已有百炼配置可继续使用现有地址；新业务空间按控制台给出的兼容接口地址配置。该模式使用项目已有 OpenAI 兼容 SDK，无需安装 `requirements-memory.txt` 或下载本地模型。
+默认不自动复用聊天地址或密钥。请填写同地域/业务空间的向量地址和密钥。确需复用时显式设置 `MEMORY_EMBEDDING_REUSE_CHAT_CREDENTIALS=true`，且向量与聊天的基础地址必须完全相同；不同地址必须使用独立向量密钥。新业务空间按控制台给出的兼容接口地址配置。`qwen3-vl-embedding` 会在相同主机上转换为原生 API 路径，其他兼容模型仍使用已有 SDK；均无需安装 `requirements-memory.txt` 或下载本地模型。
 
-模型为 `text-embedding-v4`（Qwen3-Embedding 系列）。按官方限制每批最多 10 段文本，查询也占一段；默认维度为 1024，单段输入最多 8192 Token。对最多 60 条候选重新计算向量时，最多产生 7 次 API 请求，会增加网络耗时和用量。所有批次共享超时预算，关闭 SDK 自动重试；任何批次或向量校验失败，整次检索降级，不使用部分返回结果。当前不持久化向量。
+示例模型为 `qwen3-vl-embedding`，原生接口按每批最多 20 段文字处理，关闭融合模式。对最多 60 条候选加查询重新计算向量时，最多产生 4 次 API 请求。切换为 `text-embedding-v4` 时仍按兼容接口每批最多 10 段处理，最多 7 次请求。所有批次共享超时预算，无自动重试；任何批次或向量校验失败，整次检索按配置报错或降级，不使用部分返回结果。当前不持久化向量，两种接口都会增加网络耗时和用量。
 
 修改后重启服务，`/api/status` 的 `memory_retrieval` 显示已选择的后端、提供方及模型（仅表示配置，不代表接口已连通）。检索结果的 `similarity_method=semantic` 才说明该次实际完成语义计算；`lexical_fallback` 表示已降级。相似度阈值沿用现有值，切换模型后应结合聊天样本重新评估。
 
-官方说明：[百炼 Embedding 接口](https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api)。
+官方说明：[百炼多模态向量接口](https://help.aliyun.com/zh/model-studio/multimodal-embedding-api-reference)、[文本向量兼容接口](https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api)。
 
 #### 使用本地 Embedding 模型
 

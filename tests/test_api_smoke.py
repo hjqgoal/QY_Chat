@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
+from fixtures_images import image_bytes
 
 from fastapi.testclient import TestClient
 
@@ -139,7 +140,7 @@ class ApiSmokeTests(TestCase):
         self.assertEqual(payload["background_context"], "我们昨天因为见面时间吵了几句。")
         self.assertEqual(payload["diagnostics"]["request_id"], response.headers["X-Request-ID"])
         stages = [item["stage"] for item in payload["diagnostics"]["stages"]]
-        for stage in ("context.load", "memory.retrieve", "reply.understand_generate", "quality.targeted"):
+        for stage in ("context.load", "memory.retrieve", "reply.understand_generate", "quality.enqueue"):
             self.assertIn(stage, stages)
         self.assertNotIn("memory.contact", stages)
         self.assertIsNone(payload["quality"]["average_score"])
@@ -192,7 +193,7 @@ class ApiSmokeTests(TestCase):
 
         response = self.client.post(
             "/api/vision/extract",
-            files={"image": ("chat.png", b"fake-image", "image/png")},
+            files={"image": ("chat.png", image_bytes(), "image/png")},
         )
 
         self.assertEqual(response.status_code, 200)
@@ -244,8 +245,8 @@ class ApiSmokeTests(TestCase):
         response = self.client.post(
             "/api/vision/extract-batch",
             files=[
-                ("images", ("01.png", b"first-image", "image/png")),
-                ("images", ("02.png", b"second-image", "image/png")),
+                ("images", ("01.png", image_bytes(), "image/png")),
+                ("images", ("02.png", image_bytes(), "image/png")),
             ],
         )
 
@@ -283,8 +284,8 @@ class ApiSmokeTests(TestCase):
         response = self.client.post(
             "/api/vision/extract-batch",
             files=[
-                ("images", ("01.png", b"first", "image/png")),
-                ("images", ("02.png", b"second", "image/png")),
+                ("images", ("01.png", image_bytes(), "image/png")),
+                ("images", ("02.png", image_bytes(), "image/png")),
             ],
         )
 

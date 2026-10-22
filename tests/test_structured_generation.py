@@ -47,7 +47,7 @@ class StructuredGenerationTests(TestCase):
         self.assertEqual(fmt["type"], "json_schema")
         self.assertTrue(fmt["json_schema"]["strict"])
         schema = fmt["json_schema"]["schema"]
-        self.assertEqual(set(schema["required"]), {"analysis", "scenario", "strategy", "replies"})
+        self.assertEqual(set(schema["required"]), {"topic", "analysis", "scenario", "strategy", "replies"})
         self.assertEqual(schema["properties"]["replies"]["minItems"], 3)
         self.assertEqual(schema["properties"]["replies"]["maxItems"], 3)
         self.assertEqual(schema["$defs"]["ScenarioChoice"]["properties"]["type"]["enum"], list(load_scenario_rules()))

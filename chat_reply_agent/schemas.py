@@ -20,6 +20,7 @@ class ChatMessage(BaseModel):
 class ExtractedChat(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     topic: str = ""
+    topic_source: Literal["pending", "context"] = "pending"
     last_message_from_other: str = ""
     confidence: float = 0.0
     notes: list[str] = Field(default_factory=list)
@@ -29,6 +30,7 @@ class ExtractedChat(BaseModel):
     merged_overlap_count: int = Field(default=0, ge=0)
 
     def to_text(self) -> str:
+        """Render message evidence, never promote generated metadata to dialogue."""
         lines: list[str] = []
         for message in self.messages:
             speaker = {
@@ -39,13 +41,6 @@ class ExtractedChat(BaseModel):
             time = f" [{message.time}]" if message.time else ""
             side = f" ({message.side})" if message.side else ""
             lines.append(f"{speaker}{side}{time}: {message.text}")
-
-        if self.topic:
-            lines.append(f"对话主题：{self.topic}")
-        if self.last_message_from_other:
-            lines.append(f"对方最后一条消息：{self.last_message_from_other}")
-        if self.notes:
-            lines.append(f"识别备注：{'；'.join(self.notes)}")
 
         return "\n".join(lines)
 
@@ -102,7 +97,14 @@ class ReplyControls(BaseModel):
 
 class ReplyQualityItem(BaseModel):
     candidate_index: int
-    status: Literal["reviewed", "unavailable", "invalid_response", "not_reviewed"] = "not_reviewed"
+    status: Literal["reviewed", "unavailable", "invalid_response", "not_reviewed", "revised_pending", "pending", "running"] = "not_reviewed"
+    assessment_source: Literal["legacy", "local", "targeted_review", "read_only", "edited_unreviewed"] = "legacy"
+    verdict: Literal["unverified", "usable", "needs_attention", "uncertain", "revised_pending"] = "unverified"
+    evaluated_text: str | None = None
+    evidence: dict[str, str] = Field(default_factory=dict)
+    uncertainties: list[str] = Field(default_factory=list)
+    hard_issues: list[str] = Field(default_factory=list)
+    rubric_version: str | None = None
     overall_score: int | None = Field(default=None, ge=0, le=100)
     naturalness: int | None = Field(default=None, ge=1, le=5)
     relevance: int | None = Field(default=None, ge=1, le=5)
@@ -118,7 +120,9 @@ class ReplyQualityItem(BaseModel):
 class ReplyQualityReport(BaseModel):
     review_targets: dict[int, list[str]] = Field(default_factory=dict)
     passed: bool = False
-    status: Literal["reviewed", "unavailable", "invalid_response", "not_reviewed", "partial"] = "not_reviewed"
+    status: Literal["reviewed", "unavailable", "invalid_response", "not_reviewed", "partial", "revised_pending", "pending", "running"] = "not_reviewed"
+    diversity_status: Literal["distinct", "similar", "uncertain", "not_reviewed"] = "not_reviewed"
+    group_issues: list[str] = Field(default_factory=list)
     average_score: int | None = Field(default=None, ge=0, le=100)
     summary: str = ""
     items: list[ReplyQualityItem] = Field(default_factory=list)
@@ -127,6 +131,22 @@ class ReplyQualityReport(BaseModel):
 class QualityGateResult(BaseModel):
     replies: list[ReplyCandidate] = Field(default_factory=list)
     report: ReplyQualityReport
+
+
+QualityJobStatus = Literal["disabled", "pending", "running", "completed", "failed", "timed_out", "cancelled", "busy", "unavailable"]
+
+
+class QualityJobResponse(BaseModel):
+    job_id: str | None = None
+    status: QualityJobStatus = "disabled"
+    candidate_texts: list[str] = Field(default_factory=list)
+    quality: ReplyQualityReport | None = None
+    message: str = ""
+    diagnostics: dict = Field(default_factory=dict)
+    phase: Literal["queued", "review", "repair", "recheck"] = "queued"
+    repair_status: Literal["not_needed", "running", "completed", "failed", "timed_out", "unverified"] = "not_needed"
+    revision_replies: list[ReplyCandidate] = Field(default_factory=list)
+    revision_quality: ReplyQualityReport | None = None
 
 
 class ContactMemorySnapshot(BaseModel):
@@ -203,10 +223,19 @@ class RetrievedMemoryItem(BaseModel):
     created_at: datetime
 
 
+class MemoryRetrievalDiagnostics(BaseModel):
+    method: Literal["semantic", "lexical", "lexical_fallback", "not_scored"] = "not_scored"
+    candidate_count: int = 0
+    retrieved_count: int = 0
+    embedding_model: str = ""
+    message: str = "未执行检索。"
+
+
 class MemorySearchResponse(BaseModel):
     contact_id: str
     query: str = ""
     memories: list[RetrievedMemoryItem] = Field(default_factory=list)
+    retrieval: MemoryRetrievalDiagnostics = Field(default_factory=MemoryRetrievalDiagnostics)
 
 
 class MemoryEpisodeDeleteResponse(BaseModel):
@@ -246,7 +275,20 @@ class PreparedReplyRequest(ReplyContextInput):
     save_to_memory: bool = True
 
 
+class QualityReviewRequest(PreparedReplyRequest):
+    replies: list[ReplyCandidate] = Field(min_length=3, max_length=3)
+    weather_evidence: list[dict] = Field(default_factory=list, max_length=6)
+
+    @field_validator("replies")
+    @classmethod
+    def validate_review_texts(cls, value: list[ReplyCandidate]) -> list[ReplyCandidate]:
+        if any(not reply.text.strip() or len(reply.text) > 600 for reply in value):
+            raise ValueError("每条待评估回复须为 1-600 个字符。")
+        return value
+
+
 class RegenerateReplyRequest(ReplyContextInput):
+    weather_evidence: list[dict] = Field(default_factory=list, max_length=6)
     relation_type: str
     user_id: str = "default"
     contact_id: str = "default-contact"
@@ -260,10 +302,16 @@ class RegenerateReplyRequest(ReplyContextInput):
 
 
 class RegenerateReplyResponse(BaseModel):
+    retrieval: MemoryRetrievalDiagnostics = Field(default_factory=MemoryRetrievalDiagnostics)
     weather_evidence: list[dict] = Field(default_factory=list)
     candidate_index: int
     reply: ReplyCandidate
     quality: ReplyQualityItem
+    quality_report: ReplyQualityReport | None = None
+    quality_job_id: str | None = None
+    quality_status: QualityJobStatus = "disabled"
+    quality_gate_required: bool = False
+    quality_job: QualityJobResponse | None = None
     diagnostics: dict = Field(default_factory=dict)
 
 
@@ -338,6 +386,7 @@ class StyleEvidence(BaseModel):
 
 
 class ReplyResponse(BaseModel):
+    retrieval: MemoryRetrievalDiagnostics = Field(default_factory=MemoryRetrievalDiagnostics)
     weather_evidence: list[dict] = Field(default_factory=list)
     user_id: str = "default"
     relation_type: str
@@ -356,6 +405,10 @@ class ReplyResponse(BaseModel):
     strategy: str
     replies: list[ReplyCandidate]
     quality: ReplyQualityReport
+    quality_job_id: str | None = None
+    quality_status: QualityJobStatus = "disabled"
+    quality_gate_required: bool = False
+    quality_job: QualityJobResponse | None = None
     memory_summary: str
     style_summary: str
     style_evidence: StyleEvidence = Field(default_factory=StyleEvidence)
@@ -381,6 +434,7 @@ class EvalCase(BaseModel):
     name: str
     relation_type: str
     messages: list[ChatMessage] = Field(default_factory=list)
+    background_context: str = Field(default="", max_length=2000)
     image_path: str | None = None
     expected: EvalExpectation = Field(default_factory=EvalExpectation)
 

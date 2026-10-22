@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     openai_review_model_name: str = ""
     openai_memory_model_name: str = ""
     model_timeout_seconds: float = Field(default=90, gt=0, le=300)
+    quality_timeout_seconds: float = Field(default=90, ge=5, le=300)
+    quality_queue_timeout_seconds: float = Field(default=30, ge=1, le=120)
+    quality_total_timeout_seconds: float = Field(default=240, ge=5, le=600)
+    quality_thinking_budget: int = Field(default=2048, ge=256, le=32768)
+    quality_max_completion_tokens: int = Field(default=6144, ge=1024, le=65536)
+    quality_repair_enabled: bool = True
+    quality_repair_threshold: int = Field(default=80, ge=1, le=100)
     model_structured_output: Literal["auto", "json_schema", "json_object", "prompt"] = "auto"
     weather_tool_enabled: bool = True
     weather_tool_timeout_seconds: float = Field(default=18, ge=3, le=60)
@@ -32,14 +39,16 @@ class Settings(BaseSettings):
         default_factory=dict,
     )
     memory_similarity_backend: Literal["semantic", "lexical"] = "semantic"
-    memory_embedding_provider: Literal["local", "dashscope"] = "local"
+    memory_embedding_provider: Literal["local", "dashscope", "openai_compatible"] = "local"
     memory_embedding_model: str = Field(
         default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         min_length=1,
     )
-    # Blank overrides reuse the existing provider configuration.
+    # Reuse is opt-in and restricted to the exact same API base URL.
     memory_embedding_base_url: str = ""
     memory_embedding_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    memory_embedding_reuse_chat_credentials: bool = False
+    memory_embedding_fallback: Literal["lexical", "error"] = "lexical"
     memory_embedding_timeout_seconds: float = Field(default=20, gt=0, le=120)
 
     model_config = SettingsConfigDict(

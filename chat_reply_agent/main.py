@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import uuid4
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -24,6 +23,7 @@ from chat_reply_agent.schemas import (
     ExtractedChat,
     MemoryEpisodeDeleteResponse,
     MemorySearchResponse,
+    MemoryRetrievalDiagnostics,
     PreparedReplyRequest,
     RegenerateReplyRequest,
     RegenerateReplyResponse,
@@ -32,6 +32,8 @@ from chat_reply_agent.schemas import (
     ReplyFeedbackRequest,
     ReplyFeedbackResponse,
     ReplyResponse,
+    QualityReviewRequest,
+    QualityJobResponse,
     RetrievedMemoryItem,
     StyleExampleCreateRequest,
     StyleExampleDeleteResponse,
@@ -41,7 +43,10 @@ from chat_reply_agent.schemas import (
     StyleResetResponse,
 )
 from chat_reply_agent.services.generation_service import understand_and_generate
-from chat_reply_agent.services.directed_review_service import review_targeted_replies
+from chat_reply_agent.services.upload_service import MAX_BATCH_BYTES, save_screenshot
+from chat_reply_agent.services.embedding_service import embedding_runtime_status
+from chat_reply_agent.services.quality_queue_service import enqueue_quality, quality_jobs
+from chat_reply_agent.services.quality_repair_service import requires_quality_gate
 from chat_reply_agent.services.memory_queue_service import enqueue_memory, start_memory_worker, stop_memory_worker
 from chat_reply_agent.models import MemoryJob, ConversationMemory
 from chat_reply_agent.services.contact_memory_service import (
@@ -133,6 +138,7 @@ class _GenerationContext:
     preference_summary: str
     style_examples_summary: str
     retrieved_memories: list[RetrievedMemoryItem]
+    retrieval: MemoryRetrievalDiagnostics
 
 
 @app.on_event("startup")
@@ -140,10 +146,12 @@ def on_startup() -> None:
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     init_db()
     start_memory_worker()
+    quality_jobs.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
+    quality_jobs.stop()
     stop_memory_worker()
 
 
@@ -179,6 +187,7 @@ def status() -> dict:
             "backend": settings.memory_similarity_backend,
             "embedding_provider": settings.memory_embedding_provider,
             "embedding_model": settings.memory_embedding_model,
+            **embedding_runtime_status(settings),
         },
     }
 
@@ -200,6 +209,41 @@ def memory_job_status(job_id: str, user_id: str = "default", db: Session = Depen
                 contact_memory=get_contact_snapshot(db, user_id, job.contact_id).model_dump(),
                 style_summary=get_saved_style_snapshot(db, user_id, job.relation_type).summary)
     return response
+
+
+@app.get("/api/quality-jobs/{job_id}", response_model=QualityJobResponse)
+def quality_job_status(job_id: str, user_id: str = "default") -> QualityJobResponse:
+    job = quality_jobs.get(job_id, user_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="评估任务不存在、已过期或服务已重启。")
+    return job
+
+
+@app.delete("/api/quality-jobs/{job_id}")
+def cancel_quality_job(job_id: str, user_id: str = "default") -> dict:
+    if not quality_jobs.cancel(job_id, user_id):
+        raise HTTPException(status_code=404, detail="评估任务不存在或已过期。")
+    return {"job_id": job_id, "status": "cancelled"}
+
+
+@app.post("/api/quality-jobs", response_model=QualityJobResponse)
+def review_current_replies(payload: QualityReviewRequest, db: Session = Depends(get_db)) -> QualityJobResponse:
+    try:
+        contact_id, contact_name = _normalize_contact_fields(payload.contact_id, payload.contact_name)
+        background = normalize_background_context(payload.background_context)
+        chat_text = build_model_chat_context(payload.extracted_chat, background)
+        context = _load_generation_context(db, payload.user_id, payload.relation_type, contact_id,
+                                          contact_name, payload.extracted_chat, ChatScenario(), background)
+        return enqueue_quality(user_id=payload.user_id,
+            chat_text=chat_text + weather_evidence_context(payload.weather_evidence), replies=payload.replies,
+            relation_rules=load_relation_skill(payload.relation_type), memory_summary=context.memory_context,
+            style_summary=context.style_context, controls=payload.controls,
+            style_evidence_available=bool(context.current_style.summary or context.saved_style.summary
+                                          or context.style_examples_summary))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ModelCallError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.delete("/api/memory-jobs/{job_id}")
@@ -265,9 +309,15 @@ async def extract_chat_batch(
     image_paths: list[Path] = []
     extracted_chats: list[ExtractedChat] = []
     try:
+        total_bytes = 0
+        # Validate the entire batch before paying for any vision request.
         for index, image in enumerate(images, start=1):
             image_path = await _save_upload(image)
             image_paths.append(image_path)
+            total_bytes += image_path.stat().st_size
+            if total_bytes > MAX_BATCH_BYTES:
+                raise HTTPException(413, "本次截图总大小不能超过 60 MB，请分批上传。")
+        for index, image_path in enumerate(image_paths, start=1):
             try:
                 extracted_chat = await run_in_threadpool(
                     extract_chat_from_image,
@@ -470,28 +520,34 @@ def regenerate_single_reply(
             )
         existing = list(payload.existing_replies)
         existing[payload.candidate_index] = reply
-        reviewed = timed_call("quality.single", review_targeted_replies,
-            chat_text=chat_text + weather_evidence_context(weather_evidence),
+        review_job = timed_call("quality.enqueue", enqueue_quality,
+            user_id=payload.user_id,
+            chat_text=chat_text + weather_evidence_context((payload.weather_evidence + weather_evidence)[-6:]),
             replies=existing,
-            candidate_indexes={payload.candidate_index},
-            analysis=payload.analysis,
-            scenario=payload.scenario,
             relation_rules=relation_rules,
             memory_summary=context.memory_context,
             style_summary=context.style_context,
+            style_evidence_available=bool(context.current_style.summary or context.saved_style.summary
+                                          or context.style_examples_summary),
             controls=payload.controls,
         )
-        final_reply = reviewed.replies[payload.candidate_index]
-        quality = reviewed.report.items[payload.candidate_index]
+        final_reply = reply
+        quality = review_job.quality.items[payload.candidate_index]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ModelCallError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RegenerateReplyResponse(
+        retrieval=context.retrieval,
         weather_evidence=weather_evidence,
         candidate_index=payload.candidate_index,
         reply=final_reply,
         quality=quality,
+        quality_report=review_job.quality,
+        quality_job_id=review_job.job_id,
+        quality_status=review_job.status,
+        quality_job=review_job,
+        quality_gate_required=requires_quality_gate(payload.analysis, payload.scenario, payload.controls, payload.extracted_chat),
     )
 
 
@@ -676,14 +732,19 @@ def search_contact_memories(
 ) -> MemorySearchResponse:
     normalized_id, _ = _normalize_contact_fields(contact_id, "")
     normalized_query = query.strip()[:1000]
+    retrieval = MemoryRetrievalDiagnostics(message="历史列表未执行相似度检索。")
     if normalized_query:
-        memories = retrieve_relevant_memories(
-            db=db,
-            user_id=user_id,
-            contact_id=normalized_id,
-            query_text=normalized_query,
-            limit=limit,
-        )
+        try:
+            memories = retrieve_relevant_memories(
+                db=db,
+                user_id=user_id,
+                contact_id=normalized_id,
+                query_text=normalized_query,
+                limit=limit,
+                diagnostics=retrieval,
+            )
+        except ModelCallError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     else:
         memories = list_memory_episodes(
             db=db,
@@ -695,6 +756,7 @@ def search_contact_memories(
         contact_id=normalized_id,
         query=normalized_query,
         memories=memories,
+        retrieval=retrieval,
     )
 
 
@@ -758,20 +820,23 @@ def _build_reply_response(
         controls=controls,
     )
     analysis, scenario, replies = generated.analysis, generated.scenario, generated.replies
+    extracted_chat = extracted_chat.model_copy(update={
+        "topic": generated.topic,
+        "topic_source": "context" if generated.topic else "pending",
+    })
     strategy = generated.strategy
     timing = suggest_reply_timing(analysis, scenario, relation_rules)
-    quality_result = timed_call("quality.targeted", review_targeted_replies,
+    review_job = timed_call("quality.enqueue", enqueue_quality,
+        user_id=user_id,
         chat_text=chat_text + weather_evidence_context(generated.weather_evidence),
         replies=replies,
-        analysis=analysis,
-        scenario=scenario,
         relation_rules=relation_rules,
         memory_summary=context.memory_context,
         style_summary=context.style_context,
+        style_evidence_available=bool(context.current_style.summary or context.saved_style.summary
+                                      or context.style_examples_summary),
         controls=controls,
-        uncertain_speakers=extracted_chat.review_required or any(m.speaker == "unknown" for m in extracted_chat.messages),
     )
-    replies = quality_result.replies
 
     contact_memory = context.contact_memory
     memory_summary = contact_memory.summary
@@ -787,6 +852,7 @@ def _build_reply_response(
             extracted_chat=extracted_chat.model_dump())
 
     return ReplyResponse(
+        retrieval=context.retrieval,
         weather_evidence=generated.weather_evidence,
         user_id=user_id,
         relation_type=relation_type,
@@ -804,7 +870,11 @@ def _build_reply_response(
         timing=timing,
         strategy=strategy,
         replies=replies,
-        quality=quality_result.report,
+        quality=review_job.quality,
+        quality_job_id=review_job.job_id,
+        quality_status=review_job.status,
+        quality_job=review_job,
+        quality_gate_required=requires_quality_gate(analysis, scenario, controls, extracted_chat),
         memory_summary=memory_summary,
         style_summary=style_summary,
         style_evidence=StyleEvidence(
@@ -858,16 +928,17 @@ def _normalize_confirmed_chat(
             side = "right"
         elif speaker == "other":
             side = "left"
+        known_speaker = speaker in {"me", "other"}
         confirmed = message.model_copy(
             update={
                 "speaker": speaker,
                 "side": side,
                 "text": text,
                 "text_confidence": 1.0,
-                "speaker_confidence": 1.0,
-                "speaker_source": "user_confirmed",
-                "needs_review": False,
-                "warnings": [],
+                "speaker_confidence": 1.0 if known_speaker else 0.0,
+                "speaker_source": "user_confirmed" if known_speaker else "unknown",
+                "needs_review": not known_speaker,
+                "warnings": [] if known_speaker else ["用户尚未确定说话人，请勿按本人或对方推断。"],
             }
         )
         messages.append(confirmed)
@@ -884,15 +955,19 @@ def _normalize_confirmed_chat(
     ]
     if marker not in notes:
         notes.append(marker)
+    review_indexes = [index for index, message in enumerate(messages) if message.needs_review]
 
     return ExtractedChat(
         messages=messages,
-        topic=extracted_chat.topic,
         last_message_from_other=last_other,
-        confidence=1.0 if messages else 0.0,
+        confidence=(
+            sum(message.text_confidence * 0.7 + message.speaker_confidence * 0.3 for message in messages)
+            / len(messages)
+            if messages else 0.0
+        ),
         notes=notes,
-        review_required=False,
-        review_message_indexes=[],
+        review_required=bool(review_indexes),
+        review_message_indexes=review_indexes,
         source_image_count=extracted_chat.source_image_count,
         merged_overlap_count=extracted_chat.merged_overlap_count,
     )
@@ -939,6 +1014,7 @@ def _load_generation_context(
         extracted_chat,
         background_context,
     )
+    retrieval = MemoryRetrievalDiagnostics()
     retrieved_memories = timed_call("memory.retrieve", retrieve_relevant_memories,
         db=db,
         user_id=user_id,
@@ -948,6 +1024,7 @@ def _load_generation_context(
         scenario_type=scenario.type,
         limit=3,
         exclude_chat_text=current_context,
+        diagnostics=retrieval,
     )
     return _GenerationContext(
         memory_context=build_retrieval_context(
@@ -961,6 +1038,7 @@ def _load_generation_context(
         preference_summary=preference_summary,
         style_examples_summary=style_examples_summary,
         retrieved_memories=retrieved_memories,
+        retrieval=retrieval,
     )
 
 def _make_reply_controls(
@@ -991,15 +1069,7 @@ def _normalize_contact_fields(contact_id: str, contact_name: str) -> tuple[str, 
 
 
 async def _save_upload(image: UploadFile) -> Path:
-    suffix = Path(image.filename or "").suffix.lower()
-    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
-        suffix = ".png"
-
-    filename = f"{uuid4().hex}{suffix}"
-    target = settings.upload_path / filename
-    content = await image.read()
-    target.write_bytes(content)
-    return target
+    return await save_screenshot(image, settings.upload_path)
 
 
 def _remove_upload(path: Path) -> None:

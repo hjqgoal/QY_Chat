@@ -1,8 +1,9 @@
+import math
 import unicodedata
 from pathlib import Path
 
 from chat_reply_agent.schemas import ChatMessage, ExtractedChat
-from chat_reply_agent.services.llm_client import call_vision_model, parse_json_object
+from chat_reply_agent.services.llm_client import ModelCallError, call_vision_model, parse_json_object
 
 
 VISION_PROMPT = """
@@ -21,6 +22,7 @@ VISION_PROMPT = """
 6. text_confidence 表示文字是否看清，position_confidence 表示气泡位置是否看清，均使用 0 到 1。
 7. 模糊文字宁可降低 text_confidence 并在 warnings 说明，也不要猜测补全。
 8. 请只输出 JSON，不要输出 Markdown。
+9. 仅提取截图中可见的消息，不总结主题、不推测情绪、动机或未显示的背景；notes 只记录识别疑点。
 
 JSON 格式：
 {
@@ -35,7 +37,6 @@ JSON 格式：
       "warnings": []
     }
   ],
-  "topic": "一句话概括当前对话主题",
   "confidence": 0.86,
   "notes": ["看不清或不确定的信息"]
 }
@@ -44,7 +45,7 @@ JSON 格式：
 
 def extract_chat_from_image(image_path: str | Path) -> ExtractedChat:
     result = call_vision_model(image_path, VISION_PROMPT)
-    if result:
+    if result is not None:
         return _parse_extracted_chat(result)
 
     filename = Path(image_path).name
@@ -64,7 +65,6 @@ def extract_chat_from_image(image_path: str | Path) -> ExtractedChat:
                 warnings=["未调用视觉模型，无法判断文字和说话人。"],
             )
         ],
-        topic="聊天截图待识别",
         last_message_from_other="",
         confidence=0.0,
         notes=["这是本地占位内容；配置 .env 后可启用真实多模态识别。"],
@@ -84,7 +84,6 @@ def merge_extracted_chats(chats: list[ExtractedChat]) -> ExtractedChat:
 
     merged_messages: list[ChatMessage] = []
     removed_overlap = sum(chat.merged_overlap_count for chat in chats)
-    topics: list[str] = []
     notes: list[str] = []
 
     for chat in chats:
@@ -93,9 +92,6 @@ def merge_extracted_chats(chats: list[ExtractedChat]) -> ExtractedChat:
         removed_overlap += overlap_size
         merged_messages.extend(incoming[overlap_size:])
 
-        topic = chat.topic.strip()
-        if topic and topic not in topics:
-            topics.append(topic)
         for note in chat.notes:
             clean_note = note.strip()
             if clean_note and clean_note not in notes:
@@ -117,7 +113,6 @@ def merge_extracted_chats(chats: list[ExtractedChat]) -> ExtractedChat:
 
     return ExtractedChat(
         messages=merged_messages,
-        topic=" / ".join(topics[-3:])[:160],
         last_message_from_other=last_other,
         confidence=confidence,
         notes=list(dict.fromkeys(notes)),
@@ -192,38 +187,25 @@ def _messages_confidence(messages: list[ChatMessage]) -> float:
 
 
 def _parse_extracted_chat(raw: str) -> ExtractedChat:
-    fallback = {
-        "messages": [
-            {
-                "speaker": "unknown",
-                "side": "unknown",
-                "text": raw.strip(),
-                "time": None,
-                "text_confidence": 0.3,
-                "position_confidence": 0.0,
-                "warnings": ["模型返回格式异常，消息内容需要人工复核。"],
-            }
-        ],
-        "topic": "模型返回了非标准 JSON，已保留原始识别文本。",
-        "confidence": 0.3,
-        "notes": ["建议检查视觉模型输出格式。"],
-    }
-    data = parse_json_object(raw, fallback)
+    data = parse_json_object(raw, {})
     messages = data.get("messages")
     if not isinstance(messages, list):
-        messages = fallback["messages"]
+        raise ModelCallError(
+            "视觉模型返回的聊天结构无效，未将异常内容作为聊天记录使用。"
+            "请重试，或改用文字背景；重复失败时请检查视觉模型是否支持此提取格式。",
+            kind="invalid_structure",
+        )
 
     normalized_messages: list[ChatMessage] = []
     parser_notes: list[str] = []
     overall_model_confidence = _normalize_confidence(
-        data.get("confidence"), default=0.65
+        data.get("confidence"), default=0.5
     )
 
     for item in messages:
-        if not isinstance(item, dict):
-            continue
-
-        text = str(item.get("text", "")).strip()
+        if not isinstance(item, dict) or not isinstance(item.get("text"), str):
+            raise ModelCallError("视觉模型返回的消息字段无效，请重新识别或使用文字背景。", kind="invalid_structure")
+        text = item["text"].strip()
         if not text:
             continue
 
@@ -238,11 +220,11 @@ def _parse_extracted_chat(raw: str) -> ExtractedChat:
             time = None
 
         text_confidence = _normalize_confidence(
-            item.get("text_confidence"), default=overall_model_confidence
+            item.get("text_confidence"), default=min(overall_model_confidence, 0.5)
         )
         position_confidence = _normalize_confidence(
             item.get("position_confidence"),
-            default=0.82 if side in {"left", "right"} else 0.25,
+            default=0.5 if side in {"left", "right"} else 0.25,
         )
         speaker_confidence = (
             position_confidence if speaker_source in {"geometry", "side"} else 0.35
@@ -273,18 +255,7 @@ def _parse_extracted_chat(raw: str) -> ExtractedChat:
         )
 
     if not normalized_messages:
-        normalized_messages = [
-            ChatMessage(
-                speaker="unknown",
-                side="unknown",
-                text="未识别到可读的聊天消息，请上传微信聊天截图。",
-                text_confidence=0.0,
-                speaker_confidence=0.0,
-                speaker_source="unknown",
-                needs_review=True,
-                warnings=["没有识别到可用消息。"],
-            )
-        ]
+        raise ModelCallError("未识别到可读的聊天消息，请换一张清晰截图或使用文字背景。", kind="invalid_structure")
 
     review_indexes = [
         index for index, message in enumerate(normalized_messages) if message.needs_review
@@ -300,7 +271,6 @@ def _parse_extracted_chat(raw: str) -> ExtractedChat:
 
     return ExtractedChat(
         messages=normalized_messages,
-        topic=str(data.get("topic", "")).strip(),
         last_message_from_other=last_other,
         confidence=derived_confidence,
         notes=list(
@@ -391,7 +361,8 @@ def _normalize_position(value: object) -> float | None:
 
 def _normalize_confidence(value: object, default: float) -> float:
     try:
-        return min(1.0, max(0.0, float(value)))
+        confidence = float(value)
+        return confidence if math.isfinite(confidence) and 0.0 <= confidence <= 1.0 else default
     except (TypeError, ValueError):
         return default
 

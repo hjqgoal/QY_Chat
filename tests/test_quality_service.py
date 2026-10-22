@@ -8,16 +8,7 @@ from chat_reply_agent.services.quality_service import (
     review_and_refine_replies, review_and_refine_single_reply,
 )
 from chat_reply_agent.services.reply_service import normalize_reply_candidates
-
-
-def reviewed_payload(texts):
-    return {
-        "replies": [{"text": text, "style": "自然", "reason": "承接当前话题"} for text in texts],
-        "reviews": [{
-            "candidate_index": index, "naturalness": 5, "relevance": 5,
-            "relation_fit": 5, "scenario_fit": 5, "style_fit": 5, "issues": [],
-        } for index in range(3)],
-    }
+from fixtures_quality import reviewed_payload
 
 
 class QualityServiceTests(TestCase):
@@ -54,48 +45,65 @@ class QualityServiceTests(TestCase):
                     self.assertIsNone(item.relevance)
                     self.assertIsNotNone(item.local_naturalness)
 
-    def test_complete_review_scores_exact_final_text(self):
-        payload = reviewed_payload(["先试试能不能联机", "能一起玩再说", "行，试好了叫我"])
+    def test_rewritten_text_cannot_inherit_the_original_assessment(self):
+        payload = reviewed_payload(["先试试能不能联机", "能一起玩再说", "行，试好了叫我"],
+                                   [item.text for item in self.replies])
         result = self.review(json.dumps(payload))
-        self.assertEqual(result.report.status, "reviewed")
-        self.assertTrue(result.report.passed)
-        self.assertEqual(result.report.average_score, 100)
-        self.assertEqual([item.text for item in result.replies], [item["text"] for item in payload["replies"]])
+        self.assertEqual(result.report.status, "partial")
+        self.assertFalse(result.report.passed)
+        self.assertIsNone(result.report.average_score)
+        self.assertEqual([item.text for item in result.replies], [item["reply"]["text"] for item in payload["items"]])
         self.assertTrue(all(item.revised for item in result.report.items))
+        for item in result.report.items:
+            self.assertEqual(item.status, "revised_pending")
+            self.assertIsNone(item.overall_score)
+            self.assertIsNone(item.evaluated_text)
+            self.assertEqual(item.evidence, {})
+        self.assertNotEqual(result.report.diversity_status, "distinct")
 
     def test_missing_invalid_or_duplicate_dimensions_do_not_get_default_scores(self):
-        for bad_value in (None, "5", 5.0, True, 0, 6):
+        for bad_value in ("5", 5.0, True, 0, 6):
             payload = reviewed_payload([item.text for item in self.replies])
-            payload["reviews"][0]["relevance"] = bad_value
+            payload["items"][0]["review"]["relevance"] = bad_value
             with self.subTest(value=bad_value):
-                self.assertIsNone(self.review(json.dumps(payload)).report.average_score)
-        for mutation in ("duplicate", "missing", "bad_reply", "bad_issues"):
+                self.assertEqual(self.review(json.dumps(payload)).report.status, "invalid_response")
+        for mutation in ("duplicate", "missing", "bad_reply", "bad_issues", "missing_evidence", "wrong_text"):
             payload = reviewed_payload([item.text for item in self.replies])
             if mutation == "duplicate":
-                payload["reviews"][1]["candidate_index"] = 0
+                payload["items"][1]["candidate_index"] = 0
             elif mutation == "missing":
-                del payload["reviews"][0]["style_fit"]
+                del payload["items"][0]["review"]["style_fit"]
             elif mutation == "bad_reply":
-                payload["replies"][0]["text"] = None
-            else:
-                payload["reviews"][0]["issues"] = "invalid"
+                payload["items"][0]["reply"]["text"] = None
+            elif mutation == "bad_issues":
+                payload["items"][0]["review"]["issues"] = "invalid"
+            elif mutation == "missing_evidence":
+                del payload["items"][0]["review"]["evidence"]["relevance"]
+            elif mutation == "wrong_text":
+                payload["items"][0]["review"]["evaluated_text"] = "不是输入原文"
             with self.subTest(mutation=mutation):
                 result = self.review(json.dumps(payload))
                 self.assertIsNone(result.report.average_score)
+                self.assertEqual(result.report.status, "invalid_response")
                 self.assertEqual(result.replies, self.replies)
 
     def test_low_relevance_or_duplicate_text_cannot_pass_on_high_average(self):
         payload = reviewed_payload([item.text for item in self.replies])
-        payload["reviews"][0]["relevance"] = 1
+        payload["items"][0]["review"]["relevance"] = 1
         self.assertFalse(self.review(json.dumps(payload)).report.passed)
-        payload = reviewed_payload(["先试试吧"] * 3)
+        for reply in self.replies:
+            reply.text = "先试试吧"
+        payload = reviewed_payload([item.text for item in self.replies])
         result = self.review(json.dumps(payload))
         self.assertFalse(result.report.passed)
-        self.assertIn("候选重复", result.report.items[0].issues[-1])
+        self.assertEqual(result.report.diversity_status, "similar")
+        self.assertIn("完全相同", result.report.group_issues[0])
 
     def test_fallbacks_are_not_counted_as_successful_generation(self):
         self.replies[0].source = "fallback"
-        result = self.review(json.dumps(reviewed_payload([item.text for item in self.replies])))
+        payload = reviewed_payload([item.text for item in self.replies])
+        payload["items"] = payload["items"][1:]
+        result = self.review(json.dumps(payload))
         self.assertIsNone(result.report.items[0].overall_score)
         self.assertIsNone(result.report.average_score)
         self.assertEqual(result.report.status, "partial")
@@ -123,10 +131,10 @@ class QualityServiceTests(TestCase):
         self.assertTrue(all(item.source == "fallback" and item.warnings for item in result))
 
     def test_single_review_failure_and_duplicate_revert_cannot_reuse_scores(self):
-        for data in (None, json.dumps({
-            "reply": {"text": self.replies[1].text},
-            "review": reviewed_payload(["a", "b", "c"])["reviews"][0],
-        })):
+        payload = reviewed_payload([item.text for item in self.replies])
+        payload["items"] = payload["items"][:1]
+        payload["items"][0]["reply"]["text"] = self.replies[1].text
+        for data in (None, json.dumps(payload)):
             with patch("chat_reply_agent.services.quality_service.call_text_model", return_value=data):
                 reply, quality = review_and_refine_single_reply(
                     reply=self.replies[0], candidate_index=0,

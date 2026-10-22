@@ -10,6 +10,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from fixtures_v021 import GENERATION, MEMORY
+from fixtures_images import image_bytes
+from fixtures_quality import reviewed_payload
 from chat_reply_agent.config import Settings
 from chat_reply_agent.database import Base, get_db
 from chat_reply_agent.main import app, _build_reply_response
@@ -78,14 +80,15 @@ class GenerationAndReviewTests(TestCase):
     def test_only_flagged_candidate_changes_and_other_scores_stay_null(self):
         draft = generate()
         draft.replies[1].text = "我理解你的感受"
-        row = {"candidate_index": 1, "reply": {"text": "行，试好了叫我", "style": "自然", "reason": "接话"},
-               "review": {key: 5 for key in ("naturalness", "relevance", "relation_fit", "scenario_fit", "style_fit")}}
+        row = reviewed_payload([r.text for r in draft.replies])["items"][1]
+        row["reply"]["text"] = "行，试好了叫我"
         result, model = self.review(draft, json.dumps({"items": [row]}))
         model.assert_called_once()
         self.assertEqual(result.replies[0], draft.replies[0])
         self.assertEqual(result.replies[2], draft.replies[2])
         self.assertEqual(result.replies[1].text, row["reply"]["text"])
-        self.assertEqual(result.report.items[1].overall_score, 100)
+        self.assertIsNone(result.report.items[1].overall_score)
+        self.assertEqual(result.report.items[1].status, "revised_pending")
         self.assertIsNone(result.report.items[0].overall_score)
         self.assertEqual(result.report.status, "partial")
         self.assertIsNone(result.report.average_score)
@@ -103,10 +106,8 @@ class GenerationAndReviewTests(TestCase):
 
     def test_offline_judge_cannot_rewrite_the_answers_it_is_scoring(self):
         draft = generate()
-        payload = {"replies": [r.model_dump() for r in draft.replies], "reviews": [
-            {"candidate_index": i, **{key: 5 for key in ("naturalness", "relevance", "relation_fit", "scenario_fit", "style_fit")}}
-            for i in range(3)]}
-        payload["replies"][0]["text"] = "替换文本"
+        payload = reviewed_payload([r.text for r in draft.replies])
+        payload["items"][0]["reply"]["text"] = "替换文本"
         with patch("chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(payload)):
             result = review_and_refine_replies("chat", draft.replies, draft.analysis, draft.scenario, {}, "", "", audit_only=True)
         self.assertEqual(result.replies, draft.replies)
@@ -312,10 +313,38 @@ class MemoryQueueTests(TestCase):
         with patch("chat_reply_agent.main.extract_chat_from_image", return_value=chat), patch(
                 "chat_reply_agent.services.generation_service.call_text_model", return_value=GENERATION) as model:
             response = self.client.post("/api/reply", data={"user_id": "owner", "relation_type": "friend", "save_to_memory": "false"},
-                                        files={"image": ("test.png", b"test", "image/png")})
+                                        files={"image": ("test.png", image_bytes(), "image/png")})
         self.assertEqual(response.status_code, 200)
         model.assert_called_once()
         self.assertEqual(response.json()["memory_status"], "disabled")
+        self.assertEqual(self.db.query(MemoryJob).count(), 0)
+
+    def test_http_does_not_wait_for_review_or_apply_reviewer_edits(self):
+        generation = json.loads(GENERATION)
+        generation["analysis"]["risk_level"] = "medium"
+        texts = [reply["text"] for reply in generation["replies"]]
+        review = reviewed_payload(texts)
+        review["items"][0]["reply"]["text"] = "行，你先试一下"
+        for row in review["items"]:
+            row["review"].update({key: 5 for key in ("naturalness", "relevance", "relation_fit", "scenario_fit", "style_fit")})
+        with patch("chat_reply_agent.services.generation_service.call_text_model", return_value=json.dumps(generation)), patch(
+                "chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(review)) as judge:
+            response = self.client.post("/api/reply/from-chat", json={
+                "user_id": "owner", "relation_type": "friend", "contact_id": "contact",
+                "background_context": "对方说还能小试一下联机，我还没回复。",
+                "extracted_chat": {"messages": []}, "save_to_memory": False,
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        judge.assert_not_called()
+        quality = response.json()["quality"]
+        self.assertIsNone(quality["average_score"])
+        self.assertTrue(all(item["overall_score"] is None for item in quality["items"]))
+        self.assertEqual(quality["items"][0]["status"], "not_reviewed")
+        self.assertIsNone(quality["items"][0]["evaluated_text"])
+        self.assertIsNone(quality["items"][1]["evaluated_text"])
+        self.assertEqual([r["text"] for r in response.json()["replies"]], texts)
+        self.assertIsNone(quality["items"][1]["style_fit"])
+        self.assertFalse(quality["passed"])
         self.assertEqual(self.db.query(MemoryJob).count(), 0)
 
     def test_corrupt_queued_payload_fails_once_instead_of_blocking_queue(self):

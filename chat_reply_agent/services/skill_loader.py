@@ -30,7 +30,19 @@ def load_relation_skill(relation_type: str) -> dict[str, Any]:
     skill_metadata = _read_skill_frontmatter(package_dir / "SKILL.md")
     if skill_metadata:
         data["skill"] = skill_metadata
+    skill_text = (package_dir / "SKILL.md").read_text(encoding="utf-8")
+    data["instructions"] = skill_text.split("---", 2)[2].strip() if skill_text.startswith("---") else skill_text.strip()
     return data if isinstance(data, dict) else {}
+
+
+@lru_cache
+def load_quality_skill() -> str:
+    package = SKILLS_DIR / "reply-quality-review"
+    instructions = (package / "SKILL.md").read_text(encoding="utf-8")
+    # Load the body, not just the discovery metadata, into every review request.
+    body = instructions.split("---", 2)[2].strip()
+    rubric = (package / "references" / "rubric.md").read_text(encoding="utf-8")
+    return body + "\n\n" + rubric
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

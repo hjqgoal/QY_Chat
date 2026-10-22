@@ -65,5 +65,4 @@ def build_context_retrieval_query(
     background = normalize_background_context(background_context)
     parts = [background]
     parts.extend(message.text for message in extracted_chat.messages)
-    parts.append(extracted_chat.topic)
     return "\n".join(part.strip() for part in parts if part.strip())

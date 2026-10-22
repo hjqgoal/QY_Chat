@@ -74,7 +74,12 @@ def _range(rows, field):
 
 
 def _query(query, client, now):
-    params = {"name": query.city, "count": 10, "language": "zh", "format": "json"}
+    # GeoNames finds "北京", but returns no results for the official "北京市" form.
+    search_name = query.city[:-1] if query.city.endswith("市") and len(query.city) > 2 else query.city
+    region = query.region
+    if not region and query.country_code == "CN" and query.city in {"北京市", "上海市", "天津市", "重庆市"}:
+        region = query.city
+    params = {"name": search_name, "count": 10, "language": "zh", "format": "json"}
     if query.country_code:
         params["countryCode"] = query.country_code
     candidates = _get(client, GEOCODING_URL, params).get("results", [])
@@ -82,8 +87,10 @@ def _query(query, client, now):
         raise ValueError("Invalid locations")
     candidates = [item for item in candidates if isinstance(item, dict)
                   and _number(item.get("latitude")) is not None and _number(item.get("longitude")) is not None]
-    if query.region:
-        candidates = [item for item in candidates if _normal_name(item.get("admin1")) == _normal_name(query.region)]
+    if query.country_code:
+        candidates = [item for item in candidates if item.get("country_code") == query.country_code]
+    if region:
+        candidates = [item for item in candidates if _normal_name(item.get("admin1")) == _normal_name(region)]
     exact = [item for item in candidates if _normal_name(item.get("name")) == _normal_name(query.city)]
     if exact:
         candidates = exact

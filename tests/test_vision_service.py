@@ -1,15 +1,39 @@
 import json
 from unittest import TestCase
+from unittest.mock import patch
 
 from chat_reply_agent.main import _normalize_confirmed_chat
 from chat_reply_agent.schemas import ChatMessage, ExtractedChat
+from chat_reply_agent.services.llm_client import ModelCallError
 from chat_reply_agent.services.vision_service import (
     _parse_extracted_chat,
+    extract_chat_from_image,
     merge_extracted_chats,
 )
 
 
 class VisionNormalizationTests(TestCase):
+    def test_empty_model_response_is_not_mistaken_for_missing_configuration(self) -> None:
+        with patch("chat_reply_agent.services.vision_service.call_vision_model", return_value=""), self.assertRaises(ModelCallError):
+            extract_chat_from_image("synthetic.png")
+
+    def test_malformed_or_empty_output_is_not_presented_as_a_chat_message(self) -> None:
+        for raw in ('```json\n{"messages": [\n```', '{"messages": []}', '{"messages": [{}]}', '{"messages": [{"text": null}]}'):
+            with self.subTest(raw=raw), self.assertRaises(ModelCallError) as error:
+                _parse_extracted_chat(raw)
+            self.assertEqual(error.exception.kind, "invalid_structure")
+
+    def test_missing_or_invalid_confidence_requires_review(self) -> None:
+        for confidence in (None, "", "NaN", "Infinity", 98, -1):
+            payload = {"messages": [{"side": "right", "text": "今晚来不了", "text_confidence": confidence,
+                                     "position_confidence": confidence}], "confidence": 0.99}
+            with self.subTest(confidence=confidence):
+                extracted = _parse_extracted_chat(json.dumps(payload))
+                self.assertTrue(extracted.review_required)
+                self.assertEqual(extracted.messages[0].speaker, "me")
+                self.assertLessEqual(extracted.messages[0].text_confidence, 0.5)
+                self.assertLessEqual(extracted.messages[0].speaker_confidence, 0.5)
+
     def test_geometry_overrides_model_speaker_and_preserves_duplicates(self) -> None:
         payload = {
             "messages": [
@@ -94,6 +118,14 @@ class VisionNormalizationTests(TestCase):
 
 
 class ConfirmedChatTests(TestCase):
+    def test_unknown_speaker_does_not_become_high_confidence_when_confirming_text(self) -> None:
+        confirmed = _normalize_confirmed_chat(ExtractedChat(messages=[ChatMessage(speaker="unknown", text="今晚来不了")]), "已核对文字。")
+        self.assertEqual(confirmed.messages[0].speaker_confidence, 0.0)
+        self.assertEqual(confirmed.messages[0].speaker_source, "unknown")
+        self.assertEqual(confirmed.review_message_indexes, [0])
+        self.assertTrue(confirmed.review_required)
+        self.assertEqual(confirmed.last_message_from_other, "")
+
     def test_confirmation_clears_review_flags_and_rebuilds_last_other(self) -> None:
         extracted = ExtractedChat(
             messages=[
@@ -156,7 +188,8 @@ class MultiScreenshotMergeTests(TestCase):
         self.assertEqual(merged.source_image_count, 2)
         self.assertEqual(merged.merged_overlap_count, 2)
         self.assertEqual(merged.last_message_from_other, "那一起吃？")
-        self.assertEqual(merged.topic, "晚饭 / 约饭")
+        self.assertEqual(merged.topic, "")
+        self.assertEqual(merged.topic_source, "pending")
 
     def test_preserves_real_duplicate_messages_inside_one_screenshot(self) -> None:
         chat = ExtractedChat(

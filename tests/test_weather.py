@@ -93,6 +93,39 @@ class WeatherServiceTests(TestCase):
             self.assertEqual(result["status"], "unsupported_date")
             self.assertEqual(len(calls), 1)
 
+    def test_official_municipality_name_is_searchable_without_guessing_another_region(self):
+        locations = [PLACE, {**PLACE, "admin1": "重庆市"}]
+        result, calls = self.query(WeatherQuery(city="北京市", country_code="CN"), locations=locations)
+        self.assertEqual(calls[0].url.params["name"], "北京")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["location"]["admin1"], "北京")
+        result, _ = self.query(WeatherQuery(city="北京", country_code="CN"), locations=locations)
+        self.assertEqual(result["status"], "needs_clarification")
+
+    def test_city_suffix_is_normalized_but_unspecified_province_remains_ambiguous(self):
+        locations = [{**PLACE, "name": "杭州", "admin1": "浙江省"},
+                     {**PLACE, "name": "杭州", "admin1": "同名地区"}]
+        result, calls = self.query(WeatherQuery(city="杭州市", country_code="CN", region="浙江省"), locations=locations)
+        self.assertEqual(calls[0].url.params["name"], "杭州")
+        self.assertEqual(result["status"], "ok")
+        result, calls = self.query(WeatherQuery(city="杭州市", country_code="CN"), locations=locations)
+        self.assertEqual(result["status"], "needs_clarification")
+        self.assertEqual(len(calls), 1)
+
+    def test_explicit_region_and_country_are_never_overridden(self):
+        result, calls = self.query(WeatherQuery(city="北京市", country_code="CN", region="上海市"))
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(len(calls), 1)
+        result, calls = self.query(WeatherQuery(city="北京市", country_code="US"))
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(len(calls), 1)
+
+    def test_non_chinese_city_name_is_unchanged(self):
+        place = {**PLACE, "name": "Kansas City", "country_code": "US", "admin1": "Missouri"}
+        result, calls = self.query(WeatherQuery(city="Kansas City", country_code="US", region="Missouri"), locations=[place])
+        self.assertEqual(calls[0].url.params["name"], "Kansas City")
+        self.assertEqual(result["status"], "ok")
+
     def test_air_failure_or_null_is_not_reported_as_clean_air(self):
         result, _ = self.query(air_fail=True)
         self.assertEqual(result["status"], "partial")
@@ -291,9 +324,9 @@ class WeatherPipelineTests(TestCase):
         from chat_reply_agent.main import _build_reply_response
         from chat_reply_agent.models import MemoryJob
         from chat_reply_agent.schemas import ExtractedChat
-        from chat_reply_agent.services.directed_review_service import review_targeted_replies
+        from chat_reply_agent.services.quality_queue_service import enqueue_quality
         with patch("chat_reply_agent.services.generation_service.call_text_model", side_effect=lambda *args, **kwargs: self.emit_result(GENERATION)), patch(
-                "chat_reply_agent.main.review_targeted_replies", wraps=review_targeted_replies) as reviewer:
+                "chat_reply_agent.main.enqueue_quality", wraps=enqueue_quality) as reviewer:
             response = _build_reply_response(self.db, "weather-user", "friend", "friend", "朋友",
                                              ExtractedChat(), background_context="对方在北京，问明天穿什么。")
         self.assertEqual(response.weather_evidence, [self.evidence])
@@ -306,14 +339,14 @@ class WeatherPipelineTests(TestCase):
         from fixtures_v021 import GENERATION
         from chat_reply_agent.main import regenerate_single_reply
         from chat_reply_agent.schemas import RegenerateReplyRequest
-        from chat_reply_agent.services.directed_review_service import review_targeted_replies
+        from chat_reply_agent.services.quality_queue_service import enqueue_quality
         data = json.loads(GENERATION)
         request = RegenerateReplyRequest(relation_type="friend", extracted_chat={"messages": []},
             background_context="对方在北京，问明天穿什么。", analysis=data["analysis"], scenario=data["scenario"],
             existing_replies=data["replies"], candidate_index=0)
         answer = json.dumps({"reply": {"text": "带件外套吧", "style": "自然", "reason": "结合天气"}})
         with patch("chat_reply_agent.services.reply_service.call_text_model", side_effect=lambda *args: self.emit_result(answer)), patch(
-                "chat_reply_agent.main.review_targeted_replies", wraps=review_targeted_replies) as reviewer:
+                "chat_reply_agent.main.enqueue_quality", wraps=enqueue_quality) as reviewer:
             response = regenerate_single_reply(request, self.db)
         self.assertEqual(response.weather_evidence, [self.evidence])
         self.assertIn("test-weather-provider", reviewer.call_args.kwargs["chat_text"])

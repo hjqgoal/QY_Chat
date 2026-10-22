@@ -20,6 +20,7 @@ from chat_reply_agent.schemas import (
     ReplyQualityReport,
 )
 from chat_reply_agent.services.generation_service import understand_and_generate
+from chat_reply_agent.services.context_service import build_model_chat_context
 from chat_reply_agent.services.directed_review_service import review_targeted_replies
 from chat_reply_agent.schemas import ReplyControls
 from chat_reply_agent.services.weather_contract import weather_evidence_context
@@ -115,7 +116,7 @@ def run_evaluation_case(case: EvalCase, dataset_path: Path) -> EvalCaseResult:
     try:
         actual_chat = _load_case_chat(case, dataset_path, expected_chat)
         relation_rules = load_relation_skill(case.relation_type)
-        chat_text = actual_chat.to_text()
+        chat_text = build_model_chat_context(actual_chat, case.background_context)
         generated = understand_and_generate(
             chat_text=chat_text,
             relation_rules=relation_rules,
@@ -195,10 +196,12 @@ def score_evaluation_output(
             + diversity_score * 0.15
         )
 
-    issues = list(constraint_issues)
+    issues = list(constraint_issues) + list(quality.group_issues)
+    for item in quality.items:
+        issues.extend(f"候选 {item.candidate_index + 1}：{issue}" for issue in item.issues + item.uncertainties)
     if quality_score is None:
         score = None
-        issues.append("模型质检未完成，本次不计算综合评分")
+        issues.append("质量评估不可计分或依据不足，本次不计算综合评分")
     if scenario_score == 0:
         issues.append(
             f"场景应为 {' / '.join(expected_scenarios)}，实际为 {scenario.type}"

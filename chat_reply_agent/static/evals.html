@@ -186,7 +186,7 @@
               ${item.error ? `<p>错误：${escapeHtml(item.error)}</p>` : `
                 <div class="metric-grid">
                   <div>场景命中<strong>${item.metrics.scenario_accuracy}</strong></div>
-                  <div>回复质量<strong>${item.metrics.reply_quality ?? "未评分"}</strong></div>
+                  <div>回复参考分（未校准）<strong>${item.metrics.reply_quality ?? "未评分"}</strong></div>
                   <div>规则合规<strong>${item.metrics.constraint_compliance}</strong></div>
                   <div>候选差异<strong>${item.metrics.candidate_diversity}</strong></div>
                   ${recognition}

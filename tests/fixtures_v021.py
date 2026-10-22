@@ -1,6 +1,7 @@
 import json
 
 GENERATION = json.dumps({
+    "topic": "讨论游戏尝试与联机可行性",
     "analysis": {"tone": "自然", "emotion": "平静", "attitude": "友好", "scene": "日常聊天",
                  "risk_level": "low", "key_points": ["回应当前话题"]},
     "scenario": {"type": "daily_chat", "confidence": 0.95, "signals": ["没有冲突信号"]},

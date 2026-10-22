@@ -1,5 +1,6 @@
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta, timezone
+import json
 from unittest import TestCase
 from unittest.mock import patch
 from fixtures_v021 import GENERATION, MEMORY
@@ -297,6 +298,23 @@ class RetrievalServiceTests(TestCase):
             self.db, user_id="default", contact_id="xiaolin",
         )), 2)
 
+    def test_short_followup_retrieves_without_an_appended_generated_topic(self) -> None:
+        episode = self._save(contact_id="xiaolin", topic="周末火锅",
+            summary="约好周末一起吃火锅", chat_text="对方: 周末一起吃火锅吗\n我: 可以啊")
+        results = retrieve_relevant_memories(self.db, user_id="default", contact_id="xiaolin",
+                                            query_text="火锅几点去呀")
+        self.assertEqual([item.id for item in results], [episode.id])
+        unrelated = retrieve_relevant_memories(self.db, user_id="default", contact_id="xiaolin",
+                                              query_text="配送通知已经收到")
+        self.assertEqual(unrelated, [])
+
+    def test_incidental_shared_phrase_does_not_make_different_topics_relevant(self) -> None:
+        self._save(contact_id="xiaolin", topic="项目进度",
+                   summary="收到项目进度报告，稍后回复", chat_text="对方: 收到报告了\n我: 好")
+        results = retrieve_relevant_memories(self.db, user_id="default", contact_id="xiaolin",
+                                            query_text="刚才收到新的配送通知，快递将在明天送达")
+        self.assertEqual(results, [])
+
     def test_reply_pipeline_saves_then_retrieves_related_episode(self) -> None:
         first_chat = ExtractedChat(
             messages=[
@@ -326,7 +344,11 @@ class RetrievalServiceTests(TestCase):
         with ExitStack() as stack:
             for target in model_targets:
                 stack.enter_context(patch(target, return_value=None))
-            stack.enter_context(patch("chat_reply_agent.services.generation_service.call_text_model", return_value=GENERATION))
+            generation = json.loads(GENERATION)
+            generation["topic"] = "周末火锅"
+            generation["analysis"]["key_points"] = ["约好周末一起吃火锅"]
+            stack.enter_context(patch("chat_reply_agent.services.generation_service.call_text_model",
+                                      return_value=json.dumps(generation, ensure_ascii=False)))
             first = _build_reply_response(
                 db=self.db,
                 user_id="pipeline-user",
@@ -371,6 +393,7 @@ class RetrievalServiceTests(TestCase):
         self.settings.memory_embedding_provider = "dashscope"
         self.settings.memory_embedding_model = "text-embedding-v4"
         self.settings.openai_api_key = "test-shared-key"
+        self.settings.memory_embedding_reuse_chat_credentials = True
         self.settings.openai_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         with patch("chat_reply_agent.services.retrieval_service.semantic_similarities", return_value=[0.9]) as embedding:
             results = retrieve_relevant_memories(self.db, user_id="default", contact_id="xiaolin", query_text="周末火锅")

@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from chat_reply_agent.schemas import ChatAnalysis, ChatScenario, ReplyCandidate, ReplyControls
 from chat_reply_agent.services.llm_client import ModelCallError, call_text_model, parse_json_object, weather_tools
@@ -41,10 +41,16 @@ class Draft(BaseModel):
 
 
 class GenerationPayload(BaseModel):
+    topic: str = Field(max_length=120)
     analysis: Understanding
     scenario: ScenarioChoice
     strategy: str = Field(min_length=1, max_length=600)
     replies: list[Draft] = Field(min_length=3, max_length=3)
+
+    @field_validator("topic")
+    @classmethod
+    def normalize_topic(cls, value: str) -> str:
+        return value.strip()
 
 
 def generation_json_schema(scenarios: dict) -> dict:
@@ -70,6 +76,7 @@ class GenerationResult:
     strategy: str
     replies: list[ReplyCandidate]
     weather_evidence: list[dict] = field(default_factory=list)
+    topic: str = ""
 
 
 def understand_and_generate(
@@ -86,7 +93,7 @@ def understand_and_generate(
         "controls": describe_reply_controls(controls),
     }
     prompt = f"""
-一次完成理解与回复：先依据消息位置区分双方，再理解最后一句要接什么，判断语气、情绪、态度和场景，给出简短策略及三条可直接发的回复。
+一次完成理解与回复：依据已提供的说话人标记理解完整消息和补充背景，概括事件及当前进展，再判断最后一句要接什么、语气、情绪、态度和场景，给出简短策略及三条可直接发的回复。不擅自改写已校对的说话人，未知身份保留不确定性。
 上下文数据：
 {json.dumps(context, ensure_ascii=False)}
 
@@ -94,6 +101,10 @@ def understand_and_generate(
 {json.dumps(schema, ensure_ascii=False)}
 
 要求：
+- topic 是本轮完整上下文的事实性概括，不是最后一句的关键词、回复建议或情绪结论。用一句简短的话保留核心事件、影响判断的限制条件和当前进展，最多 120 字；信息不足以概括时返回空字符串，不猜。
+- 区分事实、意向、条件方案与对方的回应：邀请不等于赴约，拒绝不等于行动完成；“可以/如果/等……再”等条件不能变成已经发生或无条件承诺。对方说“去吧”不证明用户已经去了。
+- 综合用户补充背景与全部消息；补充背景可解释截图未显示的起因，缺少对应原话不代表冲突。仅在直接矛盾时以本轮明确消息为准，不从历史片段补出本次未提供的事实。
+- topic 不包含无法证实的情绪或动机；可能的失落、不满、体谅等只在 analysis 中作为有依据的不确定判断。情绪不确定不妨碍概括已知事件，三条候选也须保留事实边界。
 - scenario.type 必须来自 scenario_rules；confidence 是你对场景判断的把握，不是质量分。
 - 情绪和动机只能作有证据的谨慎判断，证据不足要说明，不读心。
 - 用户概括背景不是双方逐字原话；与近期确认消息冲突时以近期消息为准。
@@ -133,4 +144,5 @@ def understand_and_generate(
         ChatAnalysis(**data.analysis.model_dump()), scenario, data.strategy,
         [ReplyCandidate(**{**r.model_dump(), "text": r.text.strip()}) for r in data.replies],
         weather_evidence,
+        topic=data.topic,
     )

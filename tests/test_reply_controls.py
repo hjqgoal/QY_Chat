@@ -151,7 +151,7 @@ class SingleRegenerationPersistenceTests(TestCase):
         self.db.close()
         self.engine.dispose()
 
-    @patch("chat_reply_agent.main.review_targeted_replies")
+    @patch("chat_reply_agent.main.enqueue_quality")
     @patch("chat_reply_agent.main.regenerate_reply_candidate")
     def test_single_regeneration_does_not_write_memory_or_feedback(
         self,
@@ -207,10 +207,10 @@ class SingleRegenerationPersistenceTests(TestCase):
             ReplyFeedback,
         )
         before = {model: self.db.query(model).count() for model in models}
-        from chat_reply_agent.schemas import QualityGateResult, ReplyQualityReport
+        from chat_reply_agent.schemas import QualityJobResponse, ReplyQualityReport
         updated = list(payload.existing_replies)
         updated[1] = generated
-        mock_review.return_value = QualityGateResult(replies=updated, report=ReplyQualityReport(
+        mock_review.return_value = QualityJobResponse(job_id="job", status="pending", quality=ReplyQualityReport(
             items=[ReplyQualityItem(candidate_index=0), quality, ReplyQualityItem(candidate_index=2)]))
 
         response = regenerate_single_reply(payload, self.db)
@@ -219,7 +219,8 @@ class SingleRegenerationPersistenceTests(TestCase):
         self.assertEqual(response.candidate_index, 1)
         self.assertEqual(response.reply.text, "这次先不去啦")
         self.assertIn("reply.regenerate", [item["stage"] for item in response.diagnostics["stages"]])
-        self.assertIn("quality.single", [item["stage"] for item in response.diagnostics["stages"]])
+        self.assertIn("quality.enqueue", [item["stage"] for item in response.diagnostics["stages"]])
+        self.assertEqual(response.quality_job_id, "job")
         self.assertEqual(before, after)
         mock_regenerate.assert_called_once()
         mock_review.assert_called_once()

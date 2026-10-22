@@ -18,12 +18,16 @@ class RequestTrace:
     request_id: str = field(default_factory=lambda: uuid4().hex)
     started: float = field(default_factory=perf_counter)
     stages: list[dict] = field(default_factory=list)
+    model_calls: list[dict] = field(default_factory=list)
+    validation_errors: list[dict] = field(default_factory=list)
 
     def snapshot(self) -> dict:
         return {
             "request_id": self.request_id,
             "total_ms": round(max(0, perf_counter() - self.started) * 1000, 2),
             "stages": list(self.stages),
+            "model_calls": list(self.model_calls),
+            "validation_errors": list(self.validation_errors),
         }
 
 

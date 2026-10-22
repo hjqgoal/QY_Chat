@@ -49,7 +49,7 @@ class ContextFormattingTests(TestCase):
         self.assertLess(context.index("之前因为时间没谈拢"), context.index("那今晚见吗"))
         self.assertEqual(
             build_context_retrieval_query(chat, "之前因为时间没谈拢。"),
-            "之前因为时间没谈拢。\n那今晚见吗\n确认见面",
+            "之前因为时间没谈拢。\n那今晚见吗",
         )
 
     def test_requires_background_or_chat_content(self) -> None:

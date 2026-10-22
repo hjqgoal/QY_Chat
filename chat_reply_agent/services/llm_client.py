@@ -10,16 +10,55 @@ from urllib.parse import urlparse
 from openai import OpenAI
 
 from chat_reply_agent.config import get_settings
-from chat_reply_agent.services.telemetry_service import timed_stage, timed_call
+from chat_reply_agent.services.telemetry_service import timed_stage, timed_call, current_trace
 from chat_reply_agent.services.weather_contract import weather_tool_definition
 
 
 class ModelCallError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, kind: str = "model_error"):
+        super().__init__(message)
+        self.kind = kind
 
 
 _role = ContextVar("model_role", default="strong")
 _weather_results = ContextVar("weather_results", default=None)
+_request_timeout = ContextVar("model_request_timeout", default=None)
+_quality_limits = ContextVar("quality_model_limits", default=False)
+
+
+@contextmanager
+def quality_model_limits():
+    token = _quality_limits.set(True)
+    try:
+        yield
+    finally:
+        _quality_limits.reset(token)
+
+
+def _quality_options() -> dict:
+    if not _quality_limits.get():
+        return {}
+    settings = get_settings()
+    host = urlparse(settings.openai_base_url).hostname or ""
+    model = configured_models()[_role.get()].lower()
+    # Provider extensions are only sent to documented DashScope model families.
+    supported = host.endswith(".aliyuncs.com") and any(
+        model == family or model.startswith(family + "-") for family in
+        ("qwen3.8-max", "qwen3.8-flash", "qwen3.7-max", "qwen3.7-plus", "qwen3.7-flash"))
+    if not supported:
+        return {}
+    return {"max_completion_tokens": settings.quality_max_completion_tokens,
+            "extra_body": {"thinking_budget": min(settings.quality_thinking_budget,
+                                                  settings.quality_max_completion_tokens // 2)}}
+
+
+@contextmanager
+def model_request_timeout(seconds: float):
+    token = _request_timeout.set(seconds)
+    try:
+        yield
+    finally:
+        _request_timeout.reset(token)
 
 
 @contextmanager
@@ -84,17 +123,27 @@ def _complete_text(client, system_prompt, user_prompt, *, response_schema=None):
     tool_count = 0
     for round_index in range(3):
         options = dict(structured_options)
+        options.update(_quality_options())
         if enabled:
             options.update(tools=[weather_tool_definition()],
                            tool_choice="auto" if tool_count < 2 and round_index < 2 else "none")
         response = timed_call(f"model.{_role.get()}.round", client.chat.completions.create,
             model=configured_models()[_role.get()], messages=messages, temperature=0.4, **options)
+        trace = current_trace.get()
+        if trace is not None and _quality_limits.get():
+            usage = getattr(response, "usage", None)
+            details = getattr(usage, "completion_tokens_details", None)
+            trace.model_calls.append({"role": _role.get(), "model": configured_models()[_role.get()],
+                "input_chars": sum(len(str(m.get("content", ""))) for m in messages),
+                "prompt_tokens": _safe_token_count(getattr(usage, "prompt_tokens", None)),
+                "completion_tokens": _safe_token_count(getattr(usage, "completion_tokens", None)),
+                "reasoning_tokens": _safe_token_count(getattr(details, "reasoning_tokens", None))})
         if not response.choices:
             raise ModelCallError("模型没有返回候选结果，请重试；本轮未更新记忆。")
         choice = response.choices[0]
         message = choice.message
         if getattr(choice, "finish_reason", None) == "length":
-            raise ModelCallError("模型输出达到长度上限，结果被截断，请重试；本轮未更新记忆。")
+            raise ModelCallError("模型输出达到长度上限，结果被截断。", kind="output_limit")
         refusal = getattr(message, "refusal", None)
         if getattr(choice, "finish_reason", None) == "content_filter" or (isinstance(refusal, str) and refusal):
             raise ModelCallError("模型未能处理这段内容，请调整输入后重试；本轮未更新记忆。")
@@ -154,7 +203,7 @@ def _client() -> OpenAI | None:
     return OpenAI(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
-        timeout=settings.model_timeout_seconds,
+        timeout=_request_timeout.get() or settings.model_timeout_seconds,
         max_retries=0,
     )
 
@@ -174,7 +223,7 @@ def call_text_model(system_prompt: str, user_prompt: str, *, response_schema: di
     except ModelCallError:
         raise
     except Exception as exc:
-        raise ModelCallError(_safe_error_message(exc)) from exc
+        raise ModelCallError(_safe_error_message(exc), kind=_error_kind(exc)) from exc
     finally:
         client.close()
 
@@ -255,3 +304,18 @@ def _safe_error_message(exc: Exception) -> str:
             and get_settings().weather_tool_enabled):
         message += " 本次请求包含天气工具，请确认强模型支持工具调用；可暂设 WEATHER_TOOL_ENABLED=false 排查兼容性。"
     return message
+
+
+def _safe_token_count(value):
+    return value if type(value) is int and value >= 0 else None
+
+
+def _error_kind(exc: Exception) -> str:
+    from openai import APITimeoutError, APIConnectionError
+    if isinstance(exc, (APITimeoutError, TimeoutError)):
+        return "request_timeout"
+    if isinstance(exc, APIConnectionError):
+        return "connection_error"
+    status = getattr(exc, "status_code", None)
+    return {401: "authentication_error", 403: "permission_error", 404: "model_not_found",
+            429: "rate_limit", 400: "invalid_request"}.get(status, "provider_error")

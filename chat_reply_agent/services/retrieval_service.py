@@ -9,10 +9,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from chat_reply_agent.config import get_settings
+from chat_reply_agent.config import Settings, get_settings
 from chat_reply_agent.models import MemoryEpisode
-from chat_reply_agent.schemas import ChatScenario, RetrievedMemoryItem
-from chat_reply_agent.services.embedding_service import semantic_similarities
+from chat_reply_agent.schemas import ChatScenario, RetrievedMemoryItem, MemoryRetrievalDiagnostics
+from chat_reply_agent.services.embedding_service import semantic_similarities, embedding_options
+from chat_reply_agent.services.llm_client import ModelCallError
 
 
 MAX_CANDIDATES = 60
@@ -71,9 +72,13 @@ def retrieve_relevant_memories(
     scenario_type: str = "",
     limit: int = DEFAULT_RETRIEVAL_LIMIT,
     exclude_chat_text: str = "",
+    diagnostics: MemoryRetrievalDiagnostics | None = None,
+    settings: Settings | None = None,
 ) -> list[RetrievedMemoryItem]:
+    diagnostics = diagnostics if diagnostics is not None else MemoryRetrievalDiagnostics()
     normalized_query = _normalize_text(query_text)
     if not normalized_query:
+        diagnostics.message = "没有查询文本，未执行向量检索。"
         return []
 
     statement = (
@@ -95,24 +100,33 @@ def retrieve_relevant_memories(
             != normalized_excluded_chat
         ]
     if not episodes:
+        diagnostics.message = "当前联系人没有可检索历史，未调用向量模型。"
         return []
 
-    settings = get_settings()
+    settings = settings if settings is not None else get_settings()
+    diagnostics.candidate_count = len(episodes)
     similarities = None
     method = "lexical"
     if settings.memory_similarity_backend == "semantic":
-        similarities = semantic_similarities(
-            query_text,
-            [_join_non_empty(episode.topic, episode.summary) for episode in episodes],
-            model_name=settings.memory_embedding_model,
-            provider=settings.memory_embedding_provider,
-            api_key=settings.memory_embedding_api_key or settings.openai_api_key,
-            base_url=settings.memory_embedding_base_url or settings.openai_base_url,
-            timeout=settings.memory_embedding_timeout_seconds,
-        )
+        diagnostics.embedding_model = settings.memory_embedding_model
+        strict = settings.memory_embedding_fallback == "error"
+        try:
+            similarities = semantic_similarities(
+                query_text,
+                [_join_non_empty(episode.topic, episode.summary) for episode in episodes],
+                **embedding_options(settings), raise_on_error=strict,
+            )
+        except ModelCallError:
+            if strict:
+                raise
+        if similarities is None and strict:
+            raise ModelCallError("语义向量检索不可用，严格模式下不使用词面检索。", kind="embedding_unavailable")
         method = "semantic" if similarities is not None else "lexical_fallback"
     if similarities is None:
         similarities = _lexical_similarities(query_text, episodes)
+    diagnostics.method = method
+    diagnostics.message = {"semantic": "本次已完成语义向量检索。", "lexical": "本次使用词面检索。",
+                           "lexical_fallback": "向量服务不可用，本次已降级为词面检索。"}[method]
     # Lexical scores no longer receive the old relation/scenario/recency bonuses.
     minimum = MIN_RELEVANCE_SCORE if method == "semantic" else MIN_LEXICAL_RELEVANCE_SCORE
 
@@ -149,6 +163,9 @@ def retrieve_relevant_memories(
         results.append(item)
         if len(results) >= max(1, min(limit, 10)):
             break
+    diagnostics.retrieved_count = len(results)
+    if not results:
+        diagnostics.message += "没有达到相关性与时间衰减门槛的历史片段。"
     return results
 
 
@@ -242,7 +259,9 @@ def _lexical_relevance(
         return 0.0
 
     def weight(term: str) -> float:
-        return math.log((document_count + 1) / (document_frequency[term] + 1)) + 1
+        # Unseen query fragments must not outweigh every term in the corpus.
+        # Otherwise short follow-ups need an artificial repeated topic to match.
+        return math.log((document_count + 1) / (max(1, document_frequency[term]) + 1)) + 1
 
     shared_weight = sum(
         min(query_terms[term], document_terms[term]) * weight(term)

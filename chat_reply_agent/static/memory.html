@@ -449,6 +449,7 @@
               <button id="search-memory" class="secondary" type="button">搜索</button>
             </div>
             <div id="memory-list" class="memory-list"></div>
+            <p id="retrieval-status" class="meta" role="status"></p>
           </section>
 
           <section class="panel">
@@ -684,11 +685,14 @@
       async function loadMemories() {
         if (!selectedContactId) return;
         memoryList.innerHTML = '<div class="empty">正在读取历史片段...</div>';
+        document.querySelector("#retrieval-status").textContent = "";
         const query = document.querySelector("#memory-query").value.trim();
         try {
           const response = await fetch(`/api/contacts/${encodeURIComponent(selectedContactId)}/memories?user_id=${encodeURIComponent(userId())}&query=${encodeURIComponent(query)}&limit=10`);
           if (!response.ok) throw new Error(await readError(response));
-          const memories = (await response.json()).memories || [];
+          const data = await response.json();
+          const memories = data.memories || [];
+          document.querySelector("#retrieval-status").textContent = data.retrieval?.message || "";
           document.querySelector("#history-count").textContent = `${memories.length} 条`;
           renderMemories(memories);
         } catch (error) {

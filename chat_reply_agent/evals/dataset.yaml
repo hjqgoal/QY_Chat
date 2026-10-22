@@ -1,9 +1,37 @@
 name: chat_reply_agent 中文聊天核心评测集
-version: "0.12.1"
+version: "0.12.2"
 
 # 文本样本直接使用 messages 运行分析和回复流程。
 # 如需评测截图识别，可增加 image_path；此时 messages 会作为人工标注答案。
 cases:
+  - id: friend_withdrawn_invitation
+    name: 收回邀请后的接话分寸（用户样例）
+    relation_type: friend
+    background_context: 对方邀请我打游戏，但由于我约好了其他人，只能拒绝他的邀请。
+    messages:
+      - speaker: me
+        side: right
+        text: 晚上我约好了，现在也来不了，我们这两天要搬新办公室，白天有点忙
+      - speaker: other
+        side: left
+        text: "[OK手势]"
+      - speaker: me
+        side: right
+        text: 如果你们临时缺一个的话 我等会六点半回了可以先补一下 等你们齐了我就走
+      - speaker: other
+        side: left
+        text: 算了算了你去玩
+    expected:
+      scenario_types: [daily_chat, refusal, cold_distance, conflict]
+      max_reply_chars: 36
+      forbidden_phrases: [你别生气, 我明天一定陪你, 随叫随到]
+      reference_replies: [行，那你们先玩, 好，那我先忙我的]
+      notes: >-
+        关系按朋友作测试假设，不代表截图已经证实。最后一句既可能是体谅，也可能带点失落，不能断定生气。
+        保留六点半回来、只能暂时补位的边界；不要新增补偿承诺或安排。
+        主题应概括无法应邀、提出有条件补位后对方表示不用的进展，不能概括为“去玩了”或认定已经赴约。
+        “好啦，那我先去了，你们玩开心”和“那你们玩得开心，我先去了”接话作用近似。
+        参考回复不是唯一标准，不要求逐字命中，也不预设所有候选都应该低分。
   - id: friend_daily_game
     name: 朋友间随口聊游戏
     relation_type: friend
