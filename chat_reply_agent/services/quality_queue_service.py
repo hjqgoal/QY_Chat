@@ -14,7 +14,7 @@ from chat_reply_agent.config import get_settings
 from chat_reply_agent.schemas import QualityJobResponse, ReplyCandidate, ReplyControls, ReplyQualityReport
 from chat_reply_agent.services.llm_client import ModelCallError, model_request_timeout, quality_model_limits
 from chat_reply_agent.services.quality_service import review_candidates
-from chat_reply_agent.services.quality_repair_service import repair_candidates, repair_targets
+from chat_reply_agent.services.quality_repair_service import repair_candidates, repair_targets, requires_quality_gate
 from chat_reply_agent.services.telemetry_service import current_trace, trace_scope, timed_call
 
 
@@ -44,10 +44,26 @@ ERRORS = {
     "invalid_request": "模型服务不接受本次请求参数。",
     "output_limit": "模型输出被截断，未采用不完整的评价。",
     "invalid_response": "模型返回结构、原文绑定或评价依据不完整。",
+    "invalid_json": "评估结果不是完整的 JSON，未采用无法解析的内容。",
+    "invalid_binding": "部分评价的候选编号或版本不匹配，未将其应用到原文。",
+    "incomplete_evidence": "评价缺少有效维度、依据或整组判断；未通过校验的评价不采用。",
     "provider_error": "模型服务返回错误。",
     "model_error": "模型调用未完成。",
     "internal_error": "评估任务内部异常，请查看服务端错误类型。",
 }
+
+
+def _validation_error_code(errors):
+    kinds = {error.get("type") for error in errors}
+    if "invalid_or_empty_json_object" in kinds:
+        return "invalid_json"
+    if kinds & {"unexpected_candidate_id", "duplicate_candidate_id", "batch_binding_mismatch",
+                "original_text_mismatch", "unexpected_fields"}:
+        return "invalid_binding"
+    if kinds & {"missing_or_blank_evidence", "missing_or_invalid_score", "missing_target",
+                "missing_or_invalid_group_evidence", "missing_or_invalid_list", "wrong_item_count"}:
+        return "incomplete_evidence"
+    return "invalid_response"
 
 
 @dataclass
@@ -61,6 +77,7 @@ class _Job:
     timeout: float
     total_budget: float
     parent_request_id: str | None = None
+    review_mode: str = "full"
     status: str = "pending"
     phase: str = "queued"
     started: float | None = None
@@ -169,6 +186,7 @@ class QualityJobManager:
             job = _Job(user_id, snapshot, [r.text for r in snapshot["replies"]], now,
                 now + settings.quality_queue_timeout_seconds, fingerprint, timeout,
                 settings.quality_total_timeout_seconds, parent.request_id if parent else None)
+            job.review_mode = snapshot.get("review_mode", "full")
             self._jobs[job_id] = job
             try:
                 job.future = self._executor.submit(self._run, job_id)
@@ -186,7 +204,9 @@ class QualityJobManager:
             "total_ms": round(max(0, end - start) * 1000, 2),
             "elapsed_ms": round(max(0, end - job.created) * 1000, 2),
             "phase_elapsed_ms": round(max(0, end - (job.phase_started if job.phase_started is not None else job.created)) * 1000, 2),
-            "phase": job.phase, "error_code": job.error_code, "error_message": ERRORS.get(job.error_code, ""),
+            "phase": job.phase, "review_mode": job.review_mode,
+            "phase_review_mode": job.review_mode if job.phase in {"queued", "review"} else "full",
+            "error_code": job.error_code, "error_message": ERRORS.get(job.error_code, ""),
             "worker_active": bool(job.future and not job.future.done()),
             "model_timeout_seconds": job.timeout, "total_budget_seconds": job.total_budget}
 
@@ -206,6 +226,9 @@ class QualityJobManager:
                 message = "已完成原文评估及一次修订复评；改进版单独展示，请确认后使用。"
             elif job.repair_status == "unverified":
                 message = "已修订一次，但改进版仍未通过复评；需要人工确认，不继续循环。"
+            elif job.quality and job.quality.status == "partial":
+                count = sum(item.status == "reviewed" for item in job.quality.items)
+                message = f"已保留 {count}/{len(job.texts)} 条有效评价；本轮校验未全部完成，不自动修订或重试。"
             return QualityJobResponse(job_id=job_id, status=job.status, candidate_texts=list(job.texts),
                 quality=job.quality.model_copy(deep=True) if job.quality else None, message=message,
                 diagnostics=self._diagnostics(job), phase=job.phase, repair_status=job.repair_status,
@@ -239,17 +262,20 @@ class QualityJobManager:
             return job.status == "running"
 
     def _review(self, job, payload, stage):
-        with model_request_timeout(max(.01, job.deadline - self._clock())):
+        with model_request_timeout(max(.01, job.deadline - self._clock())), quality_model_limits(payload.get("review_mode", "full")):
             result = timed_call(stage, review_candidates, **payload,
                 targets={i: ["检查事实与承诺、情绪分寸、关系及候选差异"]
                          for i, reply in enumerate(payload["replies"]) if reply.source == "model"},
                 audit_only=True, include_scores=False, raise_errors=True)
         if ([reply.text for reply in result.replies] != [reply.text for reply in payload["replies"]]
                 or len(result.report.items) != len(payload["replies"])
-                or not all(item.status == "reviewed" for item, reply in zip(result.report.items, payload["replies"])
-                           if reply.source == "model")):
+                or not any(item.status == "reviewed" for item in result.report.items)
+                or stage == "quality.recheck" and result.report.status != "reviewed"):
+            code = _validation_error_code(job.trace.validation_errors if job.trace else [])
+            raise ModelCallError("无完整有效的原文评价。", kind=code)
+        if any(item.status == "reviewed" and item.evaluated_text != reply.text
+               for item, reply in zip(result.report.items, payload["replies"])):
             raise ModelCallError("无有效原文评价。", kind="invalid_response")
-        result.report.summary = "已独立评估这组三条原文；模型判断不保证对方的反应。"
         return result.report
 
     def _run(self, job_id):
@@ -270,6 +296,10 @@ class QualityJobManager:
                     if job.status != "running":
                         return
                     job.quality = report
+                    if report.status == "partial":
+                        job.error_code = _validation_error_code(trace.validation_errors) if trace.validation_errors else None
+                        self._finish(job, "completed")
+                        return
                 settings = get_settings()
                 targets = repair_targets(report, payload["replies"], settings.quality_repair_threshold)
                 if settings.quality_repair_enabled and targets:
@@ -279,7 +309,7 @@ class QualityJobManager:
                         revised = timed_call("quality.repair", repair_candidates, payload, report, targets)
                     if not self._begin_stage(job_id, job, "recheck"):
                         return
-                    reviewed = self._review(job, {**payload, "replies": revised}, "quality.recheck")
+                    reviewed = self._review(job, {**payload, "replies": revised, "review_mode": "full"}, "quality.recheck")
                     with self._lock:
                         self._prune()
                         if job.status != "running":
@@ -307,12 +337,18 @@ class QualityJobManager:
 quality_jobs = QualityJobManager()
 
 
+def select_review_mode(analysis, scenario, controls, chat, weather_evidence=()) -> str:
+    if not get_settings().quality_quick_enabled or weather_evidence or requires_quality_gate(analysis, scenario, controls, chat):
+        return "full"
+    return "quick"
+
+
 def enqueue_quality(*, user_id: str, chat_text: str, replies: list[ReplyCandidate], relation_rules: dict,
                     memory_summary: str, style_summary: str, controls: ReplyControls,
-                    style_evidence_available: bool = False) -> QualityJobResponse:
+                    style_evidence_available: bool = False, review_mode: str = "full") -> QualityJobResponse:
     payload = dict(chat_text=chat_text, replies=replies, relation_rules=relation_rules,
                    memory_summary=memory_summary, style_summary=style_summary, controls=controls,
-                   style_evidence_available=style_evidence_available)
+                   style_evidence_available=style_evidence_available, review_mode=review_mode)
     initial = review_candidates(**payload, targets={}).report
     if not any(reply.source == "model" for reply in replies):
         job_id, status = None, "disabled"

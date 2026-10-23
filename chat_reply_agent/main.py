@@ -45,7 +45,7 @@ from chat_reply_agent.schemas import (
 from chat_reply_agent.services.generation_service import understand_and_generate
 from chat_reply_agent.services.upload_service import MAX_BATCH_BYTES, save_screenshot
 from chat_reply_agent.services.embedding_service import embedding_runtime_status
-from chat_reply_agent.services.quality_queue_service import enqueue_quality, quality_jobs
+from chat_reply_agent.services.quality_queue_service import enqueue_quality, quality_jobs, select_review_mode
 from chat_reply_agent.services.quality_repair_service import requires_quality_gate
 from chat_reply_agent.services.memory_queue_service import enqueue_memory, start_memory_worker, stop_memory_worker
 from chat_reply_agent.models import MemoryJob, ConversationMemory
@@ -181,6 +181,8 @@ def status() -> dict:
         "llm_configured": has_llm_config(),
         "text_model": configured_models()["strong"],
         "vision_model": settings.openai_vision_model_name,
+        "vision_fallback_model": settings.openai_vision_fallback_model_name.strip() or settings.openai_vision_model_name,
+        "vision_timeout_seconds": settings.vision_timeout_seconds,
         "models": configured_models(),
         "weather_tool_enabled": settings.weather_tool_enabled,
         "memory_retrieval": {
@@ -524,6 +526,8 @@ def regenerate_single_reply(
             user_id=payload.user_id,
             chat_text=chat_text + weather_evidence_context((payload.weather_evidence + weather_evidence)[-6:]),
             replies=existing,
+            review_mode=select_review_mode(payload.analysis, payload.scenario, payload.controls,
+                                           payload.extracted_chat, payload.weather_evidence + weather_evidence),
             relation_rules=relation_rules,
             memory_summary=context.memory_context,
             style_summary=context.style_context,
@@ -830,6 +834,7 @@ def _build_reply_response(
         user_id=user_id,
         chat_text=chat_text + weather_evidence_context(generated.weather_evidence),
         replies=replies,
+        review_mode=select_review_mode(analysis, scenario, controls, extracted_chat, generated.weather_evidence),
         relation_rules=relation_rules,
         memory_summary=context.memory_context,
         style_summary=context.style_context,

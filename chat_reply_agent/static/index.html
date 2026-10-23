@@ -617,6 +617,18 @@
         color: #b54708;
       }
 
+      .quality-grades {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 12px;
+        margin: 16px 0;
+        font-size: 14px;
+      }
+
+      .quality-grades dt { color: #475467; }
+      .quality-grades dd { margin: 4px 0 0; font-weight: 600; }
+      [data-quality-details], [data-quality-recommendation] { overflow-wrap: anywhere; }
+
       .error {
         color: #b42318;
         background: #fff3f0;
@@ -852,6 +864,8 @@
         if (details) details.textContent = "已编辑，之前的评价依据不再适用。";
         const group = result.querySelector("[data-quality-group]");
         if (group) group.textContent = "候选已变动，组内差异需重新确认。";
+        const recommendation = result.querySelector("[data-quality-recommendation]");
+        if (recommendation) recommendation.textContent = "";
         refreshQualityRevisions(latestResponse);
       });
 
@@ -1553,10 +1567,11 @@
             </h2>
             <p><strong data-quality-state>评估仅供参考，不能保证对方的反应</strong></p>
             <p class="meta" data-quality-summary>${escapeHtml(qualitySummary(data.quality))}</p>
-            <p class="meta" data-quality-group>${escapeHtml(data.quality?.group_issues?.join("；") || (data.quality?.diversity_status === "distinct" ? "本次复核认为候选有不同的接话作用。" : "候选组的接话差异尚未确认。"))}</p>
+            <p data-quality-recommendation>${escapeHtml(qualityRecommendation(data.quality, data.replies))}</p>
+            <p class="meta" data-quality-group>${escapeHtml(data.quality?.group_issues?.join("；") || data.quality?.group_reason || "候选组的接话差异尚未确认。")}</p>
             <p class="meta" data-quality-job-state aria-live="polite">${escapeHtml(qualityJobText(data.quality_status))}</p>
             <div class="feedback-actions">
-              <button type="button" class="feedback-button" data-action="review-current">评估当前回复</button>
+              <button type="button" class="feedback-button" data-action="review-current">详细评估当前回复</button>
               <button type="button" class="feedback-button" data-action="cancel-quality" hidden>取消评估</button>
             </div>
             <div data-quality-diagnostics></div>
@@ -1809,6 +1824,9 @@
         report.status = "partial";
         report.diversity_status = "not_reviewed";
         report.group_issues = ["候选已变动，组内差异需重新确认。"];
+        report.group_reason = "";
+        report.recommended_candidate_indexes = [];
+        report.recommendation_reason = "";
         report.summary = "已更新单条候选的检查状态；不沿用旧组合的评价。";
         latestResponse.quality = report;
       }
@@ -1838,7 +1856,20 @@
         if (report?.items?.length && report.items.every(item => !item.assessment_source || item.assessment_source === "legacy")) {
           return "历史评分没有采用当前评估规范，不作为可靠质量结论；重新生成后使用新规则。";
         }
-        return report?.summary || "暂无质量报告";
+        const mode = report?.review_mode === "quick" ? "精简评审" : "完整评审";
+        return report?.summary ? `${mode}：${report.summary}` : "暂无质量报告";
+      }
+
+      function qualityRecommendation(report, replies) {
+        if (report?.status !== "reviewed" || !report.recommended_candidate_indexes?.length ||
+            !replies?.every((reply, index) => {
+              const item = report.items?.find(item => item.candidate_index === index);
+              return item?.status === "reviewed" && item.evaluated_text === reply.text;
+            })) return "";
+        const indexes = report.recommended_candidate_indexes;
+        if (!indexes.every(index => Number.isInteger(index) && index >= 0 && index < replies.length &&
+            report.items.find(item => item.candidate_index === index)?.verdict === "usable")) return "";
+        return `优先参考：${indexes.map(index => `候选 ${index + 1}`).join("、")}。${report.recommendation_reason || "请结合自己的表达意愿选择。"}`;
       }
 
       function renderQualityDetails(review, text) {
@@ -1846,12 +1877,18 @@
         if (review.status === "reviewed" && review.evaluated_text !== text) {
           return '<p class="meta">文本已变化，旧评价依据不再适用。</p>';
         }
-        const notes = [...(review.issues || []), ...(review.uncertainties || [])];
-        const warnings = notes.length ? `<p class="meta">${escapeHtml(notes.join("；"))}</p>` : "";
+        const notes = [...new Set([...(review.hard_issues || []), ...(review.issues || [])])];
+        const warnings = (notes.length ? `<p class="meta"><strong>需要调整：</strong>${escapeHtml(notes.join("；"))}</p>` : "")
+          + (review.uncertainties?.length ? `<p class="meta"><strong>需补充的关键信息：</strong>${escapeHtml(review.uncertainties.join("；"))}</p>` : "");
         if (review.status !== "reviewed") return warnings;
         const labels = {naturalness: "说话自然度", relevance: "接话与立场", relation_fit: "关系分寸", scenario_fit: "情境与情绪", style_fit: "本人风格"};
         const evidence = Object.entries(labels).filter(([key]) => review.evidence?.[key]);
-        return warnings + (evidence.length ? `<details><summary>查看评估依据</summary>${evidence.map(([key, label]) =>
+        const grades = {1: "明显问题", 2: "需要修改", 3: "仍有不足", 4: "基本贴切", 5: "尤其贴切"};
+        return (review.conclusion ? `<p><strong>判断：</strong>${escapeHtml(review.conclusion)}</p>` : "") + warnings
+          + `<dl class="quality-grades">${Object.entries(labels).map(([key, label]) =>
+            `<div><dt>${label}</dt><dd>${Number.isInteger(review[key]) && grades[review[key]] ? `${review[key]}/5 · ${grades[review[key]]}` : "暂不计分"}</dd></div>`).join("")}</dl>`
+          + (review.advisories?.length ? `<p class="meta"><strong>普通提醒（不阻止使用）：</strong>${escapeHtml(review.advisories.join("；"))}</p>` : "")
+          + (evidence.length ? `<details><summary>查看评估依据</summary>${evidence.map(([key, label]) =>
           `<p class="meta"><strong>${label}${review[key] == null ? "（未确认）" : ""}：</strong>${escapeHtml(review.evidence[key])}</p>`
         ).join("")}<p class="meta">模型判断，不等于人工确认。</p></details>` : "");
       }
@@ -1880,13 +1917,32 @@
         const phases = {queued: "排队", review: "原文评估", repair: "定向修订", recheck: "改进版复评"};
         const stages = {"quality.background": "原文评估", "quality.repair": "定向修订", "quality.recheck": "改进版复评"};
         const calls = d.model_calls || [];
-        return `<p class="meta">后台处理 ${(d.total_ms / 1000).toFixed(2)} 秒，排队 ${((d.queue_wait_ms || 0) / 1000).toFixed(2)} 秒；当前阶段：${phases[d.phase] || "评估"}。</p>
+        const reviewMode = d.phase_review_mode || d.review_mode || data.quality?.review_mode;
+        const mode = {quick: "精简评审", full: "完整评审"}[reviewMode] || "评审";
+        return `<p class="meta">${mode}；后台处理 ${(d.total_ms / 1000).toFixed(2)} 秒，排队 ${((d.queue_wait_ms || 0) / 1000).toFixed(2)} 秒；当前阶段：${phases[d.phase] || "评估"}。</p>
           ${d.error_message ? `<p class="error">${escapeHtml(d.error_message)}${d.worker_active ? " 上游请求仍在收尾，相同任务不会重复发起。" : ""}</p>` : ""}
           <details><summary>后台诊断</summary><p class="meta">任务：${escapeHtml(data.quality_job_id || "未排队")}；诊断编号：${escapeHtml(d.request_id || "未开始调用")}；错误类型：${escapeHtml(d.error_code || "无")}</p>
           <p class="meta">每阶段预算 ${d.model_timeout_seconds ?? "-"} 秒；流程预算 ${d.total_budget_seconds ?? "-"} 秒，不含排队。</p>
           <ul>${(d.stages || []).filter(s => stages[s.stage]).map(s => `<li>${stages[s.stage]}：${(s.duration_ms / 1000).toFixed(2)} 秒${s.status === "error" ? "（未完成）" : ""}</li>`).join("")}</ul>
-          ${(d.validation_errors || []).length ? `<p class="meta">格式校验未通过：</p><ul>${d.validation_errors.map(e => `<li>${escapeHtml(e.path)}：${escapeHtml(e.type)}</li>`).join("")}</ul>` : ""}
+          ${(d.validation_errors || []).length ? `<p class="meta">评价校验详情（不一定是 JSON 格式错误）：</p><ul>${d.validation_errors.map(e => `<li>${escapeHtml(e.path)}：${escapeHtml(qualityValidationReason(e.type))} <span class="meta">(${escapeHtml(e.type)})</span></li>`).join("")}</ul>` : ""}
           ${calls.map(c => `<p class="meta">${escapeHtml(c.model || "")}：输入 ${c.prompt_tokens ?? "未知"} tokens，输出 ${c.completion_tokens ?? "未知"} tokens，其中推理 ${c.reasoning_tokens ?? "未知"} tokens。</p>`).join("")}</details>`;
+      }
+
+      function qualityValidationReason(type) {
+        const labels = {
+          invalid_or_empty_json_object: "返回内容无法解析为完整 JSON",
+          original_text_mismatch: "模型回传原文与被评估文本不一致",
+          unexpected_candidate_id: "候选编号不属于本次评估",
+          duplicate_candidate_id: "候选编号重复，未采用重复条目",
+          batch_binding_mismatch: "候选组版本缺失或不匹配",
+          unexpected_fields: "返回了协议外字段，可能包含未经允许的改写",
+          missing_or_blank_evidence: "本维度缺少评价依据",
+          missing_or_invalid_score: "本维度的判断缺失或超出范围",
+          missing_or_invalid_group_evidence: "整组差异的评价依据不完整",
+          missing_target: "缺少这条候选的评价",
+          wrong_item_count: "返回的评价数量与候选数量不一致",
+        };
+        return labels[type] || "返回字段不符合本次评估要求";
       }
 
       function refreshQualityRevisions(data) {
@@ -1950,6 +2006,7 @@
         data.quality_revisions = [];
         data.quality_adopted_indexes = [];
         data.quality_revision_report = null;
+        if (data.quality) Object.assign(data.quality, {recommended_candidate_indexes: [], recommendation_reason: ""});
         if (message && latestResponse === data) {
           data.quality_diagnostics = null;
           data.quality = {status: "not_reviewed", passed: false, average_score: null, summary: message,
@@ -1969,6 +2026,8 @@
         report.summary = message || qualityJobText(state);
         report.passed = false;
         report.average_score = null;
+        report.recommended_candidate_indexes = [];
+        report.recommendation_reason = "";
         for (const item of report.items) {
           if (["pending", "running"].includes(item.status) && !dirty.includes(item.candidate_index)) {
             item.status = active ? state : "unavailable";
@@ -2004,8 +2063,9 @@
           total.classList.toggle("failed", label !== "基本可用");
         }
         const texts = {"[data-quality-summary]": qualitySummary(report),
+          "[data-quality-recommendation]": qualityRecommendation(report, data.replies),
           "[data-quality-state]": "评估仅供参考，不能保证对方的反应",
-          "[data-quality-group]": report?.group_issues?.join("；") || (report?.diversity_status === "distinct" ? "候选有不同的接话作用。" : "候选组差异尚未确认。"),
+          "[data-quality-group]": report?.group_issues?.join("；") || report?.group_reason || (report?.diversity_status === "distinct" ? "候选有不同的接话作用。" : "候选组差异尚未确认。"),
           "[data-quality-job-state]": data.quality_job_message || qualityJobText(data.quality_status)};
         for (const [selector, text] of Object.entries(texts)) {
           const element = result.querySelector(selector);
@@ -2049,6 +2109,7 @@
         data.quality = {...payload.quality, items, average_score: null};
         if (dirty.size) {
           Object.assign(data.quality, {passed: false, status: "partial", diversity_status: "not_reviewed",
+            recommended_candidate_indexes: [], recommendation_reason: "", group_reason: "",
             summary: "未修改的候选已完成评估；编辑过的候选需重新评估。", group_issues: ["候选已编辑，旧组合的差异评价不适用。"]});
         }
         data.quality_status = "completed";

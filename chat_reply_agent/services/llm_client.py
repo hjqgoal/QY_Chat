@@ -27,8 +27,10 @@ _quality_limits = ContextVar("quality_model_limits", default=False)
 
 
 @contextmanager
-def quality_model_limits():
-    token = _quality_limits.set(True)
+def quality_model_limits(mode: str = "full"):
+    if mode not in {"quick", "full"}:
+        raise ValueError("Unknown quality review mode")
+    token = _quality_limits.set(mode)
     try:
         yield
     finally:
@@ -47,9 +49,11 @@ def _quality_options() -> dict:
         ("qwen3.8-max", "qwen3.8-flash", "qwen3.7-max", "qwen3.7-plus", "qwen3.7-flash"))
     if not supported:
         return {}
-    return {"max_completion_tokens": settings.quality_max_completion_tokens,
-            "extra_body": {"thinking_budget": min(settings.quality_thinking_budget,
-                                                  settings.quality_max_completion_tokens // 2)}}
+    quick = _quality_limits.get() == "quick"
+    completion = settings.quality_quick_max_completion_tokens if quick else settings.quality_max_completion_tokens
+    thinking = settings.quality_quick_thinking_budget if quick else settings.quality_thinking_budget
+    return {"max_completion_tokens": completion,
+            "extra_body": {"thinking_budget": min(thinking, completion // 2)}}
 
 
 @contextmanager
@@ -86,7 +90,9 @@ Open-Meteo 是模型估计/预报，非实测。US AQI 不是中国AQI；雾不�
 """
 
 
-def _structured_output_options(schema: dict | None) -> dict:
+def _structured_output_options(
+    schema: dict | None, *, model_name: str | None = None, schema_name: str = "reply_generation",
+) -> dict:
     if schema is None:
         return {}
     settings = get_settings()
@@ -95,7 +101,7 @@ def _structured_output_options(schema: dict | None) -> dict:
         # These DashScope families document strict schema support. Other compatible
         # endpoints use JSON Object mode plus the application's own validation.
         host = urlparse(settings.openai_base_url).hostname or ""
-        model = configured_models()[_role.get()].lower()
+        model = (model_name or configured_models()[_role.get()]).lower()
         families = ("qwen3.8-max", "qwen3.8-flash", "qwen3.7-max", "qwen3.7-plus", "qwen3.7-flash")
         supported = host.endswith(".aliyuncs.com") and any(
             model == family or model.startswith(family + "-") for family in families)
@@ -104,7 +110,7 @@ def _structured_output_options(schema: dict | None) -> dict:
         return {}
     if mode == "json_schema":
         return {"response_format": {"type": "json_schema", "json_schema": {
-            "name": "reply_generation", "strict": True, "schema": schema,
+            "name": schema_name, "strict": True, "schema": schema,
         }}}
     return {"response_format": {"type": "json_object"}}
 
@@ -134,6 +140,9 @@ def _complete_text(client, system_prompt, user_prompt, *, response_schema=None):
             usage = getattr(response, "usage", None)
             details = getattr(usage, "completion_tokens_details", None)
             trace.model_calls.append({"role": _role.get(), "model": configured_models()[_role.get()],
+                "review_mode": _quality_limits.get(),
+                "requested_thinking_budget": options.get("extra_body", {}).get("thinking_budget"),
+                "requested_max_completion_tokens": options.get("max_completion_tokens"),
                 "input_chars": sum(len(str(m.get("content", ""))) for m in messages),
                 "prompt_tokens": _safe_token_count(getattr(usage, "prompt_tokens", None)),
                 "completion_tokens": _safe_token_count(getattr(usage, "completion_tokens", None)),
@@ -196,14 +205,17 @@ def configured_models() -> dict[str, str]:
     }
 
 
-def _client() -> OpenAI | None:
+def _client(*, timeout_seconds: float | None = None) -> OpenAI | None:
     settings = get_settings()
     if not settings.openai_api_key:
         return None
+    timeout = _request_timeout.get()
+    if timeout_seconds is not None:
+        timeout = min(timeout, timeout_seconds) if timeout is not None else timeout_seconds
     return OpenAI(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
-        timeout=_request_timeout.get() or settings.model_timeout_seconds,
+        timeout=timeout or settings.model_timeout_seconds,
         max_retries=0,
     )
 
@@ -229,19 +241,27 @@ def call_text_model(system_prompt: str, user_prompt: str, *, response_schema: di
 
 
 @timed_stage("model.vision")
-def call_vision_model(image_path: str | Path, prompt: str) -> str | None:
+def call_vision_model(
+    image_path: str | Path, prompt: str, *, model_name: str | None = None,
+    response_schema: dict | None = None,
+) -> str | None:
     if not has_llm_config():
         return None
 
     settings = get_settings()
+    model = model_name or settings.openai_vision_model_name
+    # OCR endpoints do not support response_format, even when text calls do.
+    options = {} if "ocr" in model.lower() else _structured_output_options(
+        response_schema, model_name=model, schema_name="chat_extraction",
+    )
     path = Path(image_path)
     image_data = base64.b64encode(path.read_bytes()).decode("utf-8")
     mime_type = _guess_mime_type(path)
-    client = _client()
+    client = _client(timeout_seconds=settings.vision_timeout_seconds)
 
     try:
         response = client.chat.completions.create(
-            model=settings.openai_vision_model_name,
+            model=model,
             messages=[
                 {
                     "role": "user",
@@ -257,10 +277,32 @@ def call_vision_model(image_path: str | Path, prompt: str) -> str | None:
                 }
             ],
             temperature=0.2,
+            **options,
         )
-        return response.choices[0].message.content or ""
+        if not response.choices:
+            raise ModelCallError("视觉模型没有返回识别结果。", kind="empty_response")
+        choice = response.choices[0]
+        message = choice.message
+        refusal = getattr(message, "refusal", None)
+        if getattr(choice, "finish_reason", None) == "content_filter" or (isinstance(refusal, str) and refusal):
+            raise ModelCallError("视觉模型无法处理这张图片，请调整输入。", kind="content_filter")
+        if getattr(choice, "finish_reason", None) == "length":
+            raise ModelCallError("视觉模型输出被截断，未使用不完整聊天。", kind="output_limit")
+        if not isinstance(message.content, str) or not message.content.strip():
+            raise ModelCallError("视觉模型返回了空内容。", kind="empty_response")
+        return message.content
+    except ModelCallError:
+        raise
     except Exception as exc:
-        raise ModelCallError(_safe_error_message(exc)) from exc
+        kind = _error_kind(exc)
+        if kind == "request_timeout":
+            raise ModelCallError(
+                f"视觉模型请求超时（识图请求超时配置：{settings.vision_timeout_seconds:g} 秒）。"
+                "可能是长图处理较慢或网络、服务暂时拥堵，并不意味着密钥错误。"
+                "本次已停止，不会继续自动重试；可将长图分成几张清晰截图后再试。",
+                kind=kind,
+            ) from exc
+        raise ModelCallError(_safe_error_message(exc), kind=kind) from exc
     finally:
         client.close()
 

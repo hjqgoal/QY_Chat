@@ -9,6 +9,8 @@ import sys
 def main():
     parser = argparse.ArgumentParser(description="用合成短对话检查一次真实评审调用；会产生模型费用，不读写个人记忆。")
     parser.add_argument("--live", action="store_true", help="明确允许调用当前配置的评审模型一次")
+    parser.add_argument("--mode", choices=("quick", "full"), default="full")
+    parser.add_argument("--case", choices=("routine", "commitment"), default="routine")
     args = parser.parse_args()
     if not args.live:
         parser.error("需要显式指定 --live；本次未调用模型。")
@@ -24,18 +26,25 @@ def main():
     if not settings.openai_api_key:
         print(json.dumps({"status": "not_configured"}))
         return 1
-    texts = ["好，你先忙", "嗯嗯，晚点聊", "行，那先这样"]
-    with trace_scope() as trace, model_request_timeout(settings.quality_timeout_seconds), quality_model_limits():
+    texts = ["好，你先忙", "你说“晚点聊”，那我先去吃饭啦", "行，那先这样\n忙完再聊"]
+    chat = "合成测试对话。对方：我去开个会，晚点再聊。"
+    if args.case == "commitment":
+        chat = "合成测试。关系：同事。对方：今天能交材料吗？我：今天还没写完，明天也不确定能不能完成。"
+        texts = ["今天写不完，具体什么时候能交我还得确认一下", "放心，明天一定给你", "今天交不了，你最急着用哪部分？"]
+    with trace_scope() as trace, model_request_timeout(settings.quality_timeout_seconds), quality_model_limits(args.mode):
         try:
-            result = review_candidates("合成测试对话。对方：我去开个会，晚点再聊。", [
+            result = review_candidates(chat, [
                 ReplyCandidate(text=text, style="", reason="") for text in texts],
-                load_relation_skill("friend"), "", "", ReplyControls(),
+                load_relation_skill("colleague" if args.case == "commitment" else "friend"), "", "", ReplyControls(),
                 {i: ["核对原文、关系分寸和候选差异"] for i in range(3)},
-                audit_only=True, include_scores=False, raise_errors=True)
-            valid = all(item.status == "reviewed" for item in result.report.items)
+                audit_only=True, include_scores=False, raise_errors=True, review_mode=args.mode)
+            valid = (result.report.status == "reviewed"
+                     and all(item.status == "reviewed" and item.evaluated_text == text
+                             for item, text in zip(result.report.items, texts)))
             outcome = {"status": "completed" if valid else "invalid_response",
                 "reviewed_candidates": sum(item.status == "reviewed" for item in result.report.items),
-                "verdicts": [item.verdict for item in result.report.items]}
+                "verdicts": [item.verdict for item in result.report.items],
+                "mode": args.mode, "case": args.case, "report": result.report.model_dump()}
         except ModelCallError as exc:
             valid = False
             outcome = {"status": "failed", "error_code": exc.kind}

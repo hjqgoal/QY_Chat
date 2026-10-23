@@ -36,8 +36,10 @@ def load_relation_skill(relation_type: str) -> dict[str, Any]:
 
 
 @lru_cache
-def load_quality_skill() -> str:
+def load_quality_skill(review_mode: str = "full") -> str:
     package = SKILLS_DIR / "reply-quality-review"
+    if review_mode == "quick":
+        return (package / "references" / "quick-review.md").read_text(encoding="utf-8")
     instructions = (package / "SKILL.md").read_text(encoding="utf-8")
     # Load the body, not just the discovery metadata, into every review request.
     body = instructions.split("---", 2)[2].strip()

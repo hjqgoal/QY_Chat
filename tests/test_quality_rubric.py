@@ -2,7 +2,7 @@ import json
 from unittest import TestCase
 from unittest.mock import patch
 
-from fixtures_quality import DIMENSIONS, reviewed_payload
+from fixtures_quality import DIMENSIONS, reviewed_payload, judge_responses
 from chat_reply_agent.schemas import ChatAnalysis, ChatScenario, ReplyCandidate, ReplyControls, ReplyQualityItem
 from chat_reply_agent.services.directed_review_service import review_targeted_replies
 from chat_reply_agent.services.evaluation_service import load_evaluation_dataset
@@ -25,7 +25,7 @@ class QualityRubricTests(TestCase):
 
     def run_review(self, payload=None, **options):
         with patch("chat_reply_agent.services.quality_service.call_text_model",
-                   return_value=json.dumps(payload or self.payload())) as model:
+                   side_effect=judge_responses(payload or self.payload())) as model:
             result = review_and_refine_replies(**self.kwargs, **options)
         return result, model
 

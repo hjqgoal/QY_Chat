@@ -13,7 +13,7 @@ function fixture() {
   const inputs = texts.map(value => ({value, selectionStart: 2, selectionEnd: 2}));
   const badges = texts.map(element);
   const details = texts.map(element);
-  const selectors = Object.fromEntries(["total", "summary", "state", "group", "job-state", "diagnostics"].map(key => [`[data-quality-${key}]`, element()]));
+  const selectors = Object.fromEntries(["total", "summary", "state", "group", "job-state", "diagnostics", "recommendation"].map(key => [`[data-quality-${key}]`, element()]));
   selectors["[data-action='review-current']"] = element();
   selectors["[data-action='cancel-quality']"] = element();
   const cards = texts.map((_, index) => ({dataset: {replyIndex: String(index)}, querySelector(selector) {
@@ -37,7 +37,8 @@ function fixture() {
 function completed(jobId = "job1", originals = texts) {
   return {job_id: jobId, status: "completed", candidate_texts: originals,
     diagnostics: {total_ms: 12000, queue_wait_ms: 400},
-    quality: {status: "reviewed", passed: true, diversity_status: "distinct", group_issues: [], items: originals.map((text, candidate_index) => ({
+    quality: {status: "reviewed", passed: true, diversity_status: "distinct", group_issues: [],
+      recommended_candidate_indexes: [0], recommendation_reason: "保留原有时间限制", items: originals.map((text, candidate_index) => ({
       candidate_index, evaluated_text: text, status: "reviewed", verdict: "usable", passed: true, assessment_source: "read_only",
       evidence: {naturalness: "<img src=x onerror=alert(1)>"}, naturalness: 4,
     }))}};
@@ -64,6 +65,7 @@ function deferred() {
     assert(f.details[0].innerHTML.includes("&lt;img"));
     assert(!f.details[0].innerHTML.includes("<img"));
     assert(f.selectors["[data-quality-diagnostics]"].innerHTML.includes("12.00 秒"));
+    assert(f.selectors["[data-quality-recommendation]"].textContent.includes("候选 1"));
   }
   {
     const f = fixture();
@@ -76,6 +78,29 @@ function deferred() {
     assert.equal(f.badges[0].textContent, "基本可用");
     assert.equal(f.data.quality.passed, false);
     assert.equal(f.data.quality.diversity_status, "not_reviewed");
+    assert.equal(f.data.quality.recommended_candidate_indexes.length, 0);
+    assert.equal(f.selectors["[data-quality-recommendation]"].textContent, "");
+  }
+  {
+    const f = fixture();
+    const partial = completed();
+    partial.quality.status = "partial";
+    partial.quality.passed = false;
+    partial.quality.items[1] = {candidate_index: 1, status: "invalid_response", assessment_source: "local", verdict: "unverified", passed: false};
+    partial.message = "已保留 2/3 条有效评价；本轮校验未全部完成";
+    partial.diagnostics.validation_errors = [{path: "items.1.review.evidence.relevance", type: "missing_or_blank_evidence"},
+      {path: "<img src=x>", type: "<script>"}];
+    assert(f.sandbox.applyQualityResult(f.data, partial, texts));
+    assert.deepEqual(f.inputs.map(input => input.value), texts);
+    assert.equal(f.badges[0].textContent, "基本可用");
+    assert.equal(f.badges[1].textContent, "复核未完成");
+    assert.equal(f.badges[2].textContent, "基本可用");
+    assert.equal(f.selectors["[data-quality-total]"].textContent, "待确认");
+    assert(f.selectors["[data-quality-job-state]"].textContent.includes("2/3"));
+    const diagnostics = f.selectors["[data-quality-diagnostics]"].innerHTML;
+    assert(diagnostics.includes("本维度缺少评价依据"));
+    assert(diagnostics.includes("&lt;img"));
+    assert(!diagnostics.includes("<img"));
   }
   {
     const f = fixture();

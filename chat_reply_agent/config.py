@@ -18,14 +18,19 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model_name: str = "gpt-4.1-mini"
     openai_vision_model_name: str = "gpt-4.1-mini"
+    openai_vision_fallback_model_name: str = ""
     openai_strong_model_name: str = ""
     openai_review_model_name: str = ""
     openai_memory_model_name: str = ""
     model_timeout_seconds: float = Field(default=90, gt=0, le=300)
+    vision_timeout_seconds: float = Field(default=180, gt=0, le=300)
     quality_timeout_seconds: float = Field(default=90, ge=5, le=300)
     quality_queue_timeout_seconds: float = Field(default=30, ge=1, le=120)
     quality_total_timeout_seconds: float = Field(default=240, ge=5, le=600)
     quality_thinking_budget: int = Field(default=2048, ge=256, le=32768)
+    quality_quick_enabled: bool = True
+    quality_quick_thinking_budget: int = Field(default=512, ge=256, le=32768)
+    quality_quick_max_completion_tokens: int = Field(default=3072, ge=1024, le=65536)
     quality_max_completion_tokens: int = Field(default=6144, ge=1024, le=65536)
     quality_repair_enabled: bool = True
     quality_repair_threshold: int = Field(default=80, ge=1, le=100)

@@ -56,6 +56,8 @@
 - `services/memory_queue_service.py`：SQLite 持久任务、独立会话、单进程锁、启动恢复、原子写入、网络请求后重新检查取消。
 - `services/quality_queue_service.py`：有界线程池、阶段/总预算、取消、过期和原稿保护。质量任务在内存，不具备记忆任务的持久性。
 - `services/quality_service.py`、`quality_repair_service.py`：评价原文、针对问题修订、再评估；不自动循环、不把修订成功等同于质量合格。
+- `services/quality_contract.py`：只读评估的本次候选 ID/组 ID、服务端原文绑定和逐条失败隔离。模型不再回抄原文；部分评价有效不等于整组通过。对应回归见 `tests/test_quality_binding.py`。
+- 评估分级：`quality_queue_service.select_review_mode` 选择低风险精简或完整评审；`llm_client.quality_model_limits` 仅约束评估预算，不改生成；`quality_service` 将关键未知与普通提醒分离并派生具体结论和推荐。对应 `tests/test_quality_usefulness.py`。五档是模型参考判断，不是客观准确率；同模型分角色也不等于无偏的独立裁判。
 - `services/mcp_service.py`、`mcp_server.py`：启动固定工具服务，通过 MCP 协议调用天气工具。它不是新增了一个有独立人格的聊天 Agent。
 - `services/weather_contract.py`、`weather_service.py`：只允许地点/日期参数；城市消歧、当地时间、单位、数据缺失、AQI 标准和失败处理。
 - `services/telemetry_service.py`：单次请求与后台阶段的耗时，理解为什么不能把一次耗时当 P95。
@@ -78,3 +80,4 @@
 不要表述成：LangGraph 项目、训练了专属模型、生产级多租户系统、全量 ANN 向量库、100% 情绪准确率、自动替用户发微信，或稳定秒回。
 
 展示验收与已知风险见 [最终检查记录](release-acceptance-2026-10-23.md)。
+最新评估行为、预算与单次实测见 [评估优化验收](quality-usefulness-2026-10-23.md)。

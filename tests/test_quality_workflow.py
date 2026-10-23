@@ -13,7 +13,7 @@ from chat_reply_agent.services.llm_client import (
 from chat_reply_agent.services.quality_repair_service import repair_candidates, repair_targets, requires_quality_gate
 from chat_reply_agent.services.quality_service import review_candidates
 from chat_reply_agent.services.telemetry_service import trace_scope
-from fixtures_quality import reviewed_payload
+from fixtures_quality import reviewed_payload, judge_response, judge_responses
 from test_quality_queue import QueueHarness, TEXTS, review_input
 
 
@@ -34,8 +34,8 @@ class QualityWorkflowTests(QueueHarness, TestCase):
     def test_low_score_repairs_once_then_independently_rechecks(self):
         revised = ["好，那我先忙啦", *TEXTS[1:]]
         repair = {"items": [{"candidate_index": 0, "text": revised[0]}]}
-        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=[
-                json.dumps(self.review_response("low")), json.dumps(reviewed_payload(revised))]) as judge, patch(
+        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(
+                self.review_response("low"), reviewed_payload(revised))) as judge, patch(
                 "chat_reply_agent.services.quality_repair_service.call_text_model", return_value=json.dumps(repair)) as writer:
             job_id, _ = self.manager.submit("owner", review_input(), 90)
             state = self.terminal(job_id)
@@ -53,8 +53,8 @@ class QualityWorkflowTests(QueueHarness, TestCase):
 
     def test_recheck_failure_does_not_loop_or_publish_unreviewed_revision(self):
         for final in ("{}", ModelCallError("private reason", kind="request_timeout")):
-            with self.subTest(final=type(final).__name__), patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=[
-                    json.dumps(self.review_response("hard")), final]) as judge, patch(
+            with self.subTest(final=type(final).__name__), patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(
+                    self.review_response("hard"), final)) as judge, patch(
                     "chat_reply_agent.services.quality_repair_service.call_text_model", return_value=json.dumps({
                         "items": [{"candidate_index": 0, "text": "好，那先这样"}]})) as writer:
                 job_id, _ = self.manager.submit("owner", review_input(), 90)
@@ -73,7 +73,7 @@ class QualityWorkflowTests(QueueHarness, TestCase):
         revised = ["好，那先这样", *TEXTS[1:]]
         recheck = reviewed_payload(revised)
         recheck["items"][0]["review"]["hard_issues"] = ["仍有问题"]
-        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=[json.dumps(self.review_response("low")), json.dumps(recheck)]) as judge, patch(
+        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(self.review_response("low"), recheck)) as judge, patch(
                 "chat_reply_agent.services.quality_repair_service.call_text_model", return_value=json.dumps({"items": [{"candidate_index": 0, "text": revised[0]}]})) as writer:
             job_id, _ = self.manager.submit("owner", review_input(), 90)
             state = self.terminal(job_id)
@@ -84,8 +84,7 @@ class QualityWorkflowTests(QueueHarness, TestCase):
 
     def test_unknown_score_or_failed_review_never_triggers_repair(self):
         for raw in (json.dumps(self.review_response("unknown")), "{}", ModelCallError("secret", kind="rate_limit")):
-            with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=raw if isinstance(raw, Exception) else None,
-                       return_value=raw if isinstance(raw, str) else None), patch("chat_reply_agent.services.quality_repair_service.call_text_model") as writer:
+            with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(raw)), patch("chat_reply_agent.services.quality_repair_service.call_text_model") as writer:
                 job_id, _ = self.manager.submit("owner", review_input(), 90)
                 state = self.terminal(job_id)
                 self.manager._jobs[job_id].future.result(2)
@@ -123,10 +122,10 @@ class QualityWorkflowTests(QueueHarness, TestCase):
         def reviewer(*args, **kwargs):
             calls.append(_request_timeout.get())
             if len(calls) == 1:
-                return self.blocked_review(*args)
+                return self.blocked_review(*args, **kwargs)
             second_started.set()
             second_release.wait(2)
-            return json.dumps(reviewed_payload(TEXTS))
+            return judge_response(reviewed_payload(TEXTS), *args, **kwargs)
         with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=reviewer):
             first, _ = self.manager.submit("owner", review_input(), 5)
             self.assertTrue(self.started.wait(1))
@@ -147,7 +146,7 @@ class QualityWorkflowTests(QueueHarness, TestCase):
             self.started.set()
             self.release.wait(2)
             return json.dumps({"items": [{"candidate_index": 0, "text": "好，那先这样"}]})
-        with patch("chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(self.review_response("hard"))) as judge, patch(
+        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(self.review_response("hard"))) as judge, patch(
                 "chat_reply_agent.services.quality_repair_service.call_text_model", side_effect=writer):
             job_id, _ = self.manager.submit("owner", review_input(), 90)
             self.assertTrue(self.started.wait(1))
@@ -167,7 +166,7 @@ class QualityWorkflowTests(QueueHarness, TestCase):
             now[0] = 6
             return json.dumps({"items": [{"candidate_index": 0, "text": "好，那先这样"}]})
         with patch.object(queue, "get_settings", return_value=settings), patch(
-                "chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(self.review_response("low"))) as judge, patch(
+                "chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(self.review_response("low"))) as judge, patch(
                 "chat_reply_agent.services.quality_repair_service.call_text_model", side_effect=writer) as writer_mock:
             job_id, _ = self.manager.submit("owner", review_input(), 90)
             state = self.terminal(job_id)
@@ -182,7 +181,7 @@ class QualityWorkflowTests(QueueHarness, TestCase):
 
 class QualityRepairContractTests(TestCase):
     def get_report(self):
-        with patch("chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(reviewed_payload(TEXTS))):
+        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(reviewed_payload(TEXTS))):
             return review_candidates(**review_input(), targets={i: [] for i in range(3)}, audit_only=True).report
 
     def test_threshold_boundary_and_unknown_are_not_failure_defaults(self):
@@ -214,16 +213,16 @@ class QualityRepairContractTests(TestCase):
         broken["items"][1]["review"]["evidence"]["relevance"] = " "
         broken["items"][2]["review"]["evaluated_text"] = "private chat that must not be logged"
         with trace_scope() as trace, patch("chat_reply_agent.services.quality_service.call_text_model",
-                return_value=json.dumps(broken)) as model:
+                side_effect=judge_responses(broken)) as model:
             result = review_candidates(**review_input(), targets={i: [] for i in range(3)}, audit_only=True)
         schema = model.call_args.kwargs["response_schema"]
         self.assertEqual(schema["properties"]["items"]["minItems"], 3)
         self.assertEqual(schema["properties"]["items"]["maxItems"], 3)
         self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(result.report.status, "invalid_response")
+        self.assertEqual(result.report.status, "partial")
         self.assertEqual(trace.validation_errors, [
-            {"path": "items.1.review.evidence.relevance", "type": "missing_or_blank_evidence"},
-            {"path": "items.2.review.evaluated_text", "type": "original_text_mismatch"}])
+            {"path": "items.2", "type": "unexpected_fields"},
+            {"path": "items.1.review.evidence.relevance", "type": "missing_or_blank_evidence"}])
         self.assertNotIn("private chat", json.dumps(trace.snapshot()))
 
 

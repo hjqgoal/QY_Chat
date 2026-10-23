@@ -18,8 +18,11 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
       let phase = "running", jobId = "job1", texts = originalTexts.slice(), manualRequests = 0;
       let mode = "normal", stage = "review", highRisk = false;
       const reportFor = candidates => ({status: "reviewed", passed: true, diversity_status: "distinct", group_issues: [],
-        summary: "后台评估完成，仅供参考。", items: candidates.map((text, candidate_index) => ({candidate_index, status: "reviewed",
+        review_mode: "quick", recommended_candidate_indexes: [0], recommendation_reason: "保留原有条件，接话自然。",
+        group_reason: "分别表达接受、祝福和收尾。", summary: "已评估 3/3 条：3 条基本可用，0 条建议调整，0 条需补充关键信息。", items: candidates.map((text, candidate_index) => ({candidate_index, status: "reviewed",
           assessment_source: "read_only", verdict: "usable", evaluated_text: text, passed: true, naturalness: 4,
+          relevance: 4, relation_fit: 4, scenario_fit: 4, style_fit: null,
+          conclusion: "能接住这句话，没有新增承诺。", advisories: ["没有本人风格样本，风格项暂不计分。"],
           evidence: {naturalness: "<img src=x onerror=alert(1)>原文短句", style_fit: "本人样本不足"}}))});
       await page.route("**/*", async route => {
         const url = new URL(route.request().url());
@@ -64,6 +67,18 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
           if (mode === "timeout" && phase === "timed_out") return json({job_id: jobId, status: phase, phase: "review", candidate_texts: texts,
             message: "评估超时，本任务已结束，不会自动重试。", quality: null,
             diagnostics: {total_ms: 90000, queue_wait_ms: 3500, phase: "review", error_code: "request_timeout", error_message: "模型接口请求超时。", worker_active: false}});
+          if (mode === "partial" && phase === "completed") {
+            const report = reportFor(texts);
+            report.status = "partial";
+            report.passed = false;
+            report.summary = "部分评价未完成；已保留有效单条结果。";
+            report.items[1] = {candidate_index: 1, status: "invalid_response", assessment_source: "local", verdict: "unverified", passed: false};
+            return json({job_id: jobId, status: phase, candidate_texts: texts, quality: report,
+              message: "已保留 2/3 条有效评价；本轮校验未全部完成，不自动修订或重试。",
+              diagnostics: {total_ms: 15000, phase: "review", error_code: "incomplete_evidence",
+                error_message: "部分评价缺少依据，已保留有效单条评价。",
+                validation_errors: [{path: "items.1.review.evidence.relevance", type: "missing_or_blank_evidence"}]}});
+          }
           return json({job_id: jobId, status: phase, candidate_texts: texts,
             diagnostics: {total_ms: 12500, queue_wait_ms: 200},
             quality: phase !== "completed" ? null : reportFor(texts)});
@@ -92,6 +107,7 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
       assert.equal(await page.locator('[data-reply-index="0"] .quality-badge').textContent(), "基本可用");
       assert.equal(await page.locator('[data-reply-index="1"] .quality-badge').textContent(), "已编辑，待确认");
       assert.equal(await page.locator('[data-quality-details] img').count(), 0);
+      assert.equal(await page.locator('[data-quality-recommendation]').textContent(), "");
       assert((await page.locator('[data-quality-diagnostics]').textContent()).includes("12.50 秒"));
       assert((await page.locator('#result').textContent()).includes("15.00 秒（不含后台评估）"));
       await page.locator('[data-action="review-current"]').click();
@@ -100,15 +116,22 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
       phase = "completed";
       await page.waitForFunction(() => [...document.querySelectorAll('[data-reply-index] .quality-badge')].every(e => e.textContent === "基本可用"));
       assert.equal(await second.inputValue(), "我自己改的这句");
+      assert((await page.locator('[data-quality-recommendation]').textContent()).includes("候选 1"));
+      assert((await page.locator('[data-reply-index="0"] [data-quality-details]').textContent()).includes("4/5"));
+      assert((await page.locator('[data-reply-index="0"] [data-quality-details]').textContent()).includes("普通提醒"));
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       if (process.env.SCREENSHOT_DIR) {
         await page.locator('[data-quality-total]').scrollIntoViewIfNeeded();
         await page.screenshot({path: path.join(process.env.SCREENSHOT_DIR, `qy-background-quality-${width}.png`)});
+        await page.locator('[data-reply-index="0"]').scrollIntoViewIfNeeded();
+        await page.screenshot({path: path.join(process.env.SCREENSHOT_DIR, `qy-quality-grades-${width}.png`)});
       }
       await page.locator('[data-action="review-current"]').click();
       await page.locator('[data-action="cancel-quality"]').click();
       phase = "completed";
       await page.waitForTimeout(2200);
       assert.equal(await page.locator('[data-quality-job-state]').textContent(), "评估已取消");
+      assert.equal(await page.locator('[data-quality-recommendation]').textContent(), "");
       assert.equal(await second.inputValue(), "我自己改的这句");
       mode = "repair";
       highRisk = true;
@@ -146,6 +169,39 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
       assert((await page.locator('[data-quality-diagnostics]').textContent()).includes("模型接口请求超时"));
       assert((await page.locator('[data-quality-diagnostics]').textContent()).includes("90.00 秒"));
       assert.equal(await second.inputValue(), "改进版来了以后我又修改了");
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      mode = "partial";
+      await page.locator('[data-action="review-current"]').click();
+      phase = "completed";
+      await page.waitForFunction(() => document.querySelector('[data-quality-job-state]')?.textContent.includes("2/3"));
+      assert.equal(await page.locator('[data-reply-index="0"] .quality-badge').textContent(), "基本可用");
+      assert.equal(await page.locator('[data-reply-index="1"] .quality-badge').textContent(), "复核未完成");
+      assert.equal(await page.locator('[data-reply-index="2"] .quality-badge').textContent(), "基本可用");
+      assert.equal(await page.locator('[data-quality-total]').textContent(), "待确认");
+      assert.equal(await second.inputValue(), "改进版来了以后我又修改了");
+      await page.locator('[data-quality-diagnostics] summary').click();
+      assert((await page.locator('[data-quality-diagnostics]').textContent()).includes("本维度缺少评价依据"));
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      if (process.env.SCREENSHOT_DIR) {
+        await page.locator('[data-quality-total]').scrollIntoViewIfNeeded();
+        await page.screenshot({path: path.join(process.env.SCREENSHOT_DIR, `qy-partial-quality-${width}.png`)});
+      }
+      await page.evaluate(() => renderExtractionReview({
+        messages: [
+          {speaker: "me", side: "right", text: "周六见", text_confidence: .98, speaker_confidence: .98,
+            needs_review: true, warnings: ["自动重新识别所得，请人工确认。"]},
+          {speaker: "other", side: "left", text: "到时见", text_confidence: .98, speaker_confidence: .98,
+            needs_review: true, warnings: ["自动重新识别所得，请人工确认。"]},
+        ],
+        confidence: .98, last_message_from_other: "到时见", source_image_count: 1,
+        review_required: true, review_message_indexes: [0, 1],
+        notes: ["已自动重新识别，请核对是否漏行。<img src=x onerror=alert(1)>"],
+      }));
+      assert.equal(await page.locator('.message.needs-review').count(), 2);
+      assert((await page.locator('.review-banner.warning').textContent()).includes("2 条"));
+      assert((await page.locator('#result').textContent()).includes("已自动重新识别"));
+      assert.equal(await page.locator('#result img').count(), 0);
+      assert.equal(await page.locator('[data-action="confirm-extraction"]').isEnabled(), true);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.evaluate(() => renderExtractionReview({
         messages: [

@@ -16,7 +16,7 @@ from chat_reply_agent.main import app
 from chat_reply_agent.schemas import ReplyCandidate, ReplyControls
 from chat_reply_agent.services import quality_queue_service as queue
 from chat_reply_agent.services.llm_client import ModelCallError, model_request_timeout, _request_timeout
-from fixtures_quality import reviewed_payload
+from fixtures_quality import reviewed_payload, judge_response, judge_responses
 from fixtures_v021 import GENERATION
 
 
@@ -50,7 +50,7 @@ class QueueHarness:
         self.started.set()
         if not self.release.wait(3):
             raise AssertionError("Test did not release reviewer")
-        return json.dumps(reviewed_payload(TEXTS))
+        return judge_response(reviewed_payload(TEXTS), *args, **kwargs)
 
     def terminal(self, job_id):
         end = monotonic() + 3
@@ -104,7 +104,7 @@ class QualityQueueTests(QueueHarness, TestCase):
     def test_negative_judgment_completes_but_is_not_approval(self):
         data = reviewed_payload(TEXTS)
         data["items"][0]["review"]["hard_issues"] = ["新增了未经确认的安排"]
-        with patch("chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(data)):
+        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(data)):
             job_id, _ = self.manager.submit("owner", review_input(), 90)
             state = self.terminal(job_id)
         self.assertEqual(state.status, "completed")
@@ -164,7 +164,7 @@ class QualityQueueTests(QueueHarness, TestCase):
         self.manager._clock = lambda: now[0]
         self.manager._ttl = 10
         self.manager._max_retained = 1
-        with patch("chat_reply_agent.services.quality_service.call_text_model", return_value=json.dumps(reviewed_payload(TEXTS))):
+        with patch("chat_reply_agent.services.quality_service.call_text_model", side_effect=judge_responses(reviewed_payload(TEXTS), reviewed_payload(TEXTS))):
             first, _ = self.manager.submit("owner", review_input(), 90)
             self.terminal(first)
             self.manager._jobs[first].future.result(timeout=2)
@@ -256,6 +256,7 @@ class QualityJobApiTests(QueueHarness, TestCase):
                 data = response.json()
                 self.assertEqual(data["quality_status"], "pending")
                 self.assertEqual(data["quality_gate_required"], risk == "high")
+                self.assertEqual(data["quality"]["review_mode"], "quick" if risk == "low" else "full")
                 self.assertTrue(self.started.wait(1))
                 self.assertEqual(self.manager.get(data["quality_job_id"], "owner").status, "running")
                 self.assertEqual([r["text"] for r in data["replies"]], TEXTS)
@@ -282,6 +283,7 @@ class QualityJobApiTests(QueueHarness, TestCase):
             self.assertEqual(self.terminal(job_id).status, "completed")
             state = self.client.get(f"/api/quality-jobs/{job_id}?user_id=owner").json()
             self.assertEqual(state["candidate_texts"], TEXTS)
+            self.assertEqual(state["quality"]["review_mode"], "full")
             self.assertIn("weather-evidence", judge.call_args.args[1])
             strong.assert_not_called()
             self.assertEqual(self.client.delete(f"/api/quality-jobs/{job_id}?user_id=owner").status_code, 200)

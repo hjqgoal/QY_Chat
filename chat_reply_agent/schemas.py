@@ -103,6 +103,8 @@ class ReplyQualityItem(BaseModel):
     evaluated_text: str | None = None
     evidence: dict[str, str] = Field(default_factory=dict)
     uncertainties: list[str] = Field(default_factory=list)
+    advisories: list[str] = Field(default_factory=list)
+    conclusion: str = ""
     hard_issues: list[str] = Field(default_factory=list)
     rubric_version: str | None = None
     overall_score: int | None = Field(default=None, ge=0, le=100)
@@ -118,6 +120,10 @@ class ReplyQualityItem(BaseModel):
 
 
 class ReplyQualityReport(BaseModel):
+    review_mode: Literal["quick", "full"] = "full"
+    recommended_candidate_indexes: list[int] = Field(default_factory=list)
+    recommendation_reason: str = ""
+    group_reason: str = ""
     review_targets: dict[int, list[str]] = Field(default_factory=dict)
     passed: bool = False
     status: Literal["reviewed", "unavailable", "invalid_response", "not_reviewed", "partial", "revised_pending", "pending", "running"] = "not_reviewed"
