@@ -4,7 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || "playwright");
 const html = fs.readFileSync(path.join(__dirname, "../chat_reply_agent/static/index.html"), "utf8");
-const originalTexts = ["行，那我先去了", "好啦，你们玩开心", "嗯，下次再说"];
+const longReply = "我这边显示的是被其他应用中断，所以想弄清楚，但这不代表一定有人给你打电话。\n\n我不是一定要你交截图，你不想发可以不发。\n\n但我不想这个问题最后变成一句‘那你怀疑吧’，我还是想跟你好好说清楚。";
+const originalTexts = [longReply, "好啦，你们玩开心", "嗯，下次再说"];
 const initialQuality = () => ({status: "pending", summary: "回复已生成，后台正在评估。", passed: false,
   diversity_status: "not_reviewed", items: originalTexts.map((_, candidate_index) => ({candidate_index, status: "pending", verdict: "unverified", assessment_source: "local"}))});
 
@@ -86,6 +87,7 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
         return route.fulfill({status: 404, body: "not found"});
       });
       await page.goto("http://qy.test/");
+      assert.equal(await page.locator('[name="length_preference"]').inputValue(), "auto");
       await page.waitForFunction(() => document.querySelector('#retrieval-status')?.textContent.includes("严格模式"));
       assert((await page.locator('#retrieval-status').textContent()).includes("尚未验证连通性"));
       await page.locator('[name="background_context"]').fill("对方说算了算了你去玩，我想简短收尾。");
@@ -95,6 +97,9 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
       assert((await page.locator('[data-retrieval-status]').textContent()).includes("已完成语义向量检索"));
       assert.equal(await page.locator('[data-retrieval-status] img').count(), 0);
       assert.equal(await page.locator('[data-reply-index="0"] .quality-badge').textContent(), "后台评估中");
+      const first = page.locator('[data-reply-index="0"] [data-reply-text]');
+      assert.equal(await first.inputValue(), longReply);
+      assert(await first.evaluate(input => input.clientHeight >= input.scrollHeight));
       const second = page.locator('[data-reply-index="1"] [data-reply-text]');
       await second.fill("我自己改的这句");
       await second.evaluate(input => {input.focus(); input.setSelectionRange(3, 3); input.dataset.identity = "keep";});
@@ -148,6 +153,7 @@ const initialQuality = () => ({status: "pending", summary: "回复已生成，�
       phase = "completed";
       await page.waitForFunction(() => document.querySelector('[data-revision-index="0"]'));
       assert.equal(await page.locator('[data-candidate-list]').isVisible(), true);
+      assert(await first.evaluate(input => input.clientHeight >= input.scrollHeight));
       assert.equal(await page.locator('[data-reply-index="0"] [data-reply-text]').inputValue(), originalTexts[0]);
       assert.equal(await page.locator('[data-quality-revisions] img').count(), 0);
       await page.locator('[data-action="use-revision"][data-index="0"]').click();

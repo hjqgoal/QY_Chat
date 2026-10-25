@@ -345,7 +345,7 @@ async def create_reply_advice(
     contact_name: str = Form(""),
     reply_intent: str = Form("auto"),
     custom_intent: str = Form(""),
-    length_preference: str = Form("short"),
+    length_preference: str = Form("auto"),
     intimacy_level: int = Form(2),
     initiative_level: int = Form(2),
     save_to_memory: bool = Form(True),

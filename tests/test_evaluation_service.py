@@ -81,8 +81,9 @@ class EvaluationScoringTests(TestCase):
         self.assertEqual(result.metrics.recognition_accuracy, 85)
         self.assertIn("截图说话人识别准确率不足 90%", result.issues)
 
-    def test_forbidden_ai_phrase_fails_constraint(self) -> None:
+    def test_case_specific_forbidden_phrase_fails_constraint(self) -> None:
         case = _build_case(image_path=None)
+        case.expected.forbidden_phrases = ["我理解你的感受"]
         replies = _good_replies()
         replies[0] = ReplyCandidate(
             text="我理解你的感受，我们可以慢慢沟通",
@@ -100,6 +101,15 @@ class EvaluationScoringTests(TestCase):
         self.assertFalse(result.passed)
         self.assertLess(result.metrics.constraint_compliance, 100)
         self.assertTrue(any("禁用表达" in issue for issue in result.issues))
+
+    def test_ordinary_phrase_is_not_a_global_quality_failure(self) -> None:
+        case = _build_case(image_path=None)
+        replies = _good_replies()
+        replies[0].text = "如果你愿意，先试试旧的"
+        result = score_evaluation_output(case, case.expected_chat(), ChatScenario(type="daily_chat"),
+                                         replies, ReplyQualityReport(status="unavailable"))
+        self.assertEqual(result.metrics.constraint_compliance, 100)
+        self.assertFalse(result.passed)
 
 
 def _build_case(image_path: str | None) -> EvalCase:

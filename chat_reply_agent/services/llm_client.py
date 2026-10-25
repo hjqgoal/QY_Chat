@@ -12,6 +12,9 @@ from openai import OpenAI
 from chat_reply_agent.config import get_settings
 from chat_reply_agent.services.telemetry_service import timed_stage, timed_call, current_trace
 from chat_reply_agent.services.weather_contract import weather_tool_definition
+from chat_reply_agent.services.reply_skill_service import (
+    SKILL_TOOL_POLICY, load_reply_skills, reply_skill_catalog, reply_skill_tool_definition,
+)
 
 
 class ModelCallError(RuntimeError):
@@ -22,6 +25,7 @@ class ModelCallError(RuntimeError):
 
 _role = ContextVar("model_role", default="strong")
 _weather_results = ContextVar("weather_results", default=None)
+_reply_skills = ContextVar("reply_skills", default=False)
 _request_timeout = ContextVar("model_request_timeout", default=None)
 _quality_limits = ContextVar("quality_model_limits", default=False)
 
@@ -63,6 +67,15 @@ def model_request_timeout(seconds: float):
         yield
     finally:
         _request_timeout.reset(token)
+
+
+@contextmanager
+def reply_skill_tools():
+    token = _reply_skills.set(get_settings().reply_skills_enabled)
+    try:
+        yield
+    finally:
+        _reply_skills.reset(token)
 
 
 @contextmanager
@@ -121,26 +134,30 @@ def _complete_text(client, system_prompt, user_prompt, *, response_schema=None):
         system_prompt += "\n最终答案必须是符合给定结构的 JSON 对象；不要输出 Markdown 围栏、XML 标签或其他说明。"
     evidence = _weather_results.get()
     enabled = evidence is not None and _role.get() == "strong" and get_settings().weather_tool_enabled
+    skills_enabled = _reply_skills.get() and _role.get() == "strong"
+    if skills_enabled:
+        system_prompt += SKILL_TOOL_POLICY + "\n可选策略目录：\n" + json.dumps(reply_skill_catalog(), ensure_ascii=False)
     if evidence is not None:
         system_prompt += WEATHER_POLICY + f"\n当前UTC时间：{datetime.now(UTC).isoformat()}。"
         if not enabled:
             system_prompt += "\n本轮天气工具关闭，不能查询或捏造当前天气。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
-    tool_count = 0
+    tool_count, skill_count = 0, 0
+    definitions = ([weather_tool_definition()] if enabled else []) + ([reply_skill_tool_definition()] if skills_enabled else [])
     for round_index in range(3):
         options = dict(structured_options)
         options.update(_quality_options())
-        if enabled:
-            options.update(tools=[weather_tool_definition()],
-                           tool_choice="auto" if tool_count < 2 and round_index < 2 else "none")
+        if definitions:
+            remaining = (enabled and tool_count < 2) or (skills_enabled and skill_count < 1)
+            options.update(tools=definitions, tool_choice="auto" if remaining and round_index < 2 else "none")
         response = timed_call(f"model.{_role.get()}.round", client.chat.completions.create,
             model=configured_models()[_role.get()], messages=messages, temperature=0.4, **options)
         trace = current_trace.get()
-        if trace is not None and _quality_limits.get():
+        if trace is not None:
             usage = getattr(response, "usage", None)
             details = getattr(usage, "completion_tokens_details", None)
             trace.model_calls.append({"role": _role.get(), "model": configured_models()[_role.get()],
-                "review_mode": _quality_limits.get(),
+                "review_mode": _quality_limits.get() or None,
                 "requested_thinking_budget": options.get("extra_body", {}).get("thinking_budget"),
                 "requested_max_completion_tokens": options.get("max_completion_tokens"),
                 "input_chars": sum(len(str(m.get("content", ""))) for m in messages),
@@ -161,15 +178,28 @@ def _complete_text(client, system_prompt, user_prompt, *, response_schema=None):
             if not isinstance(message.content, str) or not message.content.strip():
                 raise ModelCallError("模型返回了空内容，请重试；本轮未更新记忆。")
             return message.content
-        if not enabled or round_index == 2 or len(calls) > 4:
+        if not definitions or round_index == 2 or len(calls) > 4:
             raise ModelCallError("模型未遵守工具调用次数限制，请重试或换用支持工具调用的模型。")
         messages.append(message.model_dump(exclude_none=True))
         for call in calls:
-            if tool_count >= 2:
+            name = call.function.name
+            if name == "load_reply_skills":
+                if not skills_enabled or skill_count >= 1:
+                    result = {"status": "limit_reached", "message": "策略读取不可用或已用完；按基础约束和现有资料回复。"}
+                else:
+                    skill_count += 1
+                    try:
+                        arguments = json.loads(call.function.arguments)
+                    except (TypeError, ValueError):
+                        result = {"status": "invalid_arguments", "message": "策略参数必须是有效JSON。"}
+                    else:
+                        result = timed_call("tool.reply_skills", load_reply_skills, arguments)
+            elif name != "get_weather" or not enabled:
+                result = {"status": "unknown_tool", "message": "只能使用本轮已提供的工具。"}
+            elif tool_count >= 2:
                 result = {"status": "limit_reached", "message": "本轮查询次数已用完；使用现有证据，不得编造。"}
-            elif call.function.name != "get_weather":
-                result = {"status": "unknown_tool", "message": "只允许调用 get_weather。"}
             else:
+                tool_count += 1
                 try:
                     arguments = json.loads(call.function.arguments)
                 except (TypeError, ValueError):
@@ -178,7 +208,6 @@ def _complete_text(client, system_prompt, user_prompt, *, response_schema=None):
                     from chat_reply_agent.services.mcp_service import call_weather_tool
                     result = call_weather_tool(arguments)
                 evidence.append({"tool": "get_weather", "result": result})
-            tool_count += 1
             messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result, ensure_ascii=False)})
     raise ModelCallError("模型未返回最终回复。")
 
@@ -345,6 +374,8 @@ def _safe_error_message(exc: Exception) -> str:
     if (getattr(exc, "status_code", None) == 400 and _weather_results.get() is not None
             and get_settings().weather_tool_enabled):
         message += " 本次请求包含天气工具，请确认强模型支持工具调用；可暂设 WEATHER_TOOL_ENABLED=false 排查兼容性。"
+    if getattr(exc, "status_code", None) == 400 and _reply_skills.get():
+        message += " 本次包含策略读取工具；不支持工具调用的模型可设 REPLY_SKILLS_ENABLED=false，仅使用基础约束。"
     return message
 
 

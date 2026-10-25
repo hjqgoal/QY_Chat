@@ -90,7 +90,7 @@ class ReplyControls(BaseModel):
         "ask_clarify",
     ] = "auto"
     custom_intent: str = Field(default="", max_length=160)
-    length_preference: Literal["very_short", "short", "normal"] = "short"
+    length_preference: Literal["auto", "very_short", "short", "normal"] = "auto"
     intimacy_level: int = Field(default=2, ge=1, le=3)
     initiative_level: int = Field(default=2, ge=1, le=3)
 

@@ -1,6 +1,6 @@
 ---
 name: lover-committed-reply
-description: Generate Chinese WeChat replies for committed romantic relationships. Use when relation_type is lover_committed, or when the reply should protect intimacy, repair tension, reassure without overexplaining, and sound like a real partner rather than a relationship counselor.
+description: Provide context for committed partners. Preserve both parties' feelings, choices and factual boundaries without defaulting to apology or reassurance; choose tactics from the current conversation.
 ---
 
 # 恋人回复（已在一起）
@@ -10,10 +10,10 @@ description: Generate Chinese WeChat replies for committed romantic relationship
 ## 使用方式
 
 1. 先判断对方是在求安慰、求解释、表达委屈、试探在意，还是冲突升级。
-2. 如果对方有情绪，先接住，再说事实。
+2. 同时考虑双方感受和事实；对方不高兴不等于用户必须道歉。
 3. 可以表达在意，但别写成情感咨询话术。
-4. 有误会就给一个具体修复动作。
-5. 亲密感要自然，不要油腻，不要长篇自证。
+4. 有误会可以解释，有合理不满可以明确表达；不默认撤回疑问或强迫自证。
+5. 简单接话简短，复杂问题可分2-4段说清；不把完整表达当成AI腔。
 
 ## 不要这样写
 

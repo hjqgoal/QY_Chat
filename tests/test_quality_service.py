@@ -43,7 +43,7 @@ class QualityServiceTests(TestCase):
                 for item in result.report.items:
                     self.assertIsNone(item.overall_score)
                     self.assertIsNone(item.relevance)
-                    self.assertIsNotNone(item.local_naturalness)
+                    self.assertIsNone(item.local_naturalness)
 
     def test_rewritten_text_cannot_inherit_the_original_assessment(self):
         payload = reviewed_payload(["先试试能不能联机", "能一起玩再说", "行，试好了叫我"],
@@ -123,7 +123,8 @@ class QualityServiceTests(TestCase):
         self.replies = result
         unreviewed = self.review()
         self.assertEqual(unreviewed.replies, result)
-        self.assertTrue(unreviewed.report.items[2].issues)
+        self.assertEqual(unreviewed.report.items[2].issues, ["模型复核未完成，仅保留本地规则提醒。"])
+        self.assertIsNone(unreviewed.report.items[2].local_naturalness)
 
     def test_malformed_candidate_is_explicit_fallback(self):
         result = normalize_reply_candidates([{"text": None}], {}, ChatScenario())

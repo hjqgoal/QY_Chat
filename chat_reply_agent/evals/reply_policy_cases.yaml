@@ -1,0 +1,70 @@
+name: 完整表达与策略选择开发样例
+version: "2026-10-25"
+purpose: 离线规则回归及后续人工对照，不是盲测集，不自动证明语义质量。
+cases:
+  - id: interrupted-call
+    source: 用户提供的开发案例，经去身份化和缩写；参考表达由开发过程编写。
+    relation: lover_committed
+    context: 我方显示通话被其他应用中断，怀疑有来电；对方否认挂断并拒绝发截图，最后说“那你怀疑吧”。用户希望说清疑问，不强迫交截图，也不一味退让。
+    must_cover: [保留疑问与可见提示, 不把提示当作来电证据, 尊重拒绝截图, 回应沟通被终止的问题]
+    avoid: [无依据全盘认错, 确定对方在隐瞒, 把中断说成占线, 擅自约定明天再聊]
+    optional_skills: [clarify-facts, assert-position]
+    probes:
+      - label: 完整多段说明
+        old_local_naturalness: 3
+        text: |-
+          我确实有疑问，我这边显示的是被其他应用中断，但这也不能说明一定有人给你打电话。
+
+          我想弄清楚发生了什么，不是一定要你交截图。
+
+          你不想发可以不发，但你说“那你怀疑吧”，这个问题就没法往下说了。
+      - label: 短但漏掉核心问题
+        old_local_naturalness: 5
+        text: 好，我不问了，是我不对
+  - id: work-deadline
+    source: 合成开发案例
+    relation: colleague
+    context: 同事让用户今晚交一份临时新增的报告；用户已说明今晚要完成原任务，不能同时答应两项，也没有确定新的交付日期。
+    must_cover: [说明冲突的工作安排, 明确当前不能同时答应, 可询问优先级但不擅自承诺日期]
+    avoid: [直接答应今晚都交, 默认明早能交, 无依据指责同事故意刁难]
+    optional_skills: [clarify-facts, assert-position]
+    probes:
+      - label: 条件说清楚
+        old_local_naturalness: 3
+        text: |-
+          今晚我得先把原来的任务做完，这份报告没法同时交。
+
+          要先做报告的话，原任务的优先级得一起调整一下。你看先做哪份？
+  - id: family-arrangement
+    source: 合成开发案例
+    relation: family
+    context: 家人未经确认替用户答应周末聚餐，用户明确不参加，希望以后先问自己。
+    must_cover: [明确本次不参加, 提出以后先确认]
+    avoid: [为了客气改成参加, 凭空道歉, 概括成家人从来不尊重自己]
+    optional_skills: [assert-position]
+    probes:
+      - label: 具体拒绝
+        old_local_naturalness: 3
+        text: 这次我不去了。以后帮我答应之前先问我一下，我也得看自己的安排。
+  - id: ordinary-chat
+    source: 合成开发案例
+    relation: friend
+    context: 朋友发消息说刚下班，双方没有其他安排、疑问或冲突。
+    must_cover: [回应下班这件事]
+    avoid: [凭空上升到关系问题, 强行认错, 强行多段解释]
+    optional_skills: []
+    probes:
+      - label: 简短接话
+        old_local_naturalness: 5
+        text: 终于下班啦
+  - id: concrete-responsibility
+    source: 合成开发案例
+    relation: friend
+    context: 用户确认自己记错了见面时间，让朋友等了二十分钟，用户主动希望道歉。现在能否赶到未提供。
+    must_cover: [具体承认记错时间, 回应让对方等待的影响]
+    avoid: [为了坚定而拒绝认错, 擅自承诺五分钟到, 责怪对方没提醒]
+    optional_skills: [take-responsibility]
+    probes:
+      - label: 有依据地负责
+        old_local_naturalness: 5
+        text: 是我记错时间了，让你白等了这么久，对不起

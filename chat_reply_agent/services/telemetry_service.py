@@ -20,6 +20,7 @@ class RequestTrace:
     stages: list[dict] = field(default_factory=list)
     model_calls: list[dict] = field(default_factory=list)
     validation_errors: list[dict] = field(default_factory=list)
+    reply_skills: list[dict] = field(default_factory=list)
 
     def snapshot(self) -> dict:
         return {
@@ -28,6 +29,7 @@ class RequestTrace:
             "stages": list(self.stages),
             "model_calls": list(self.model_calls),
             "validation_errors": list(self.validation_errors),
+            "reply_skills": list(self.reply_skills),
         }
 
 

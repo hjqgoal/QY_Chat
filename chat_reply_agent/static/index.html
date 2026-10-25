@@ -739,8 +739,9 @@
               <label>
                 回复长度
                 <select name="length_preference">
+                  <option value="auto" selected>按内容决定</option>
                   <option value="very_short">很短</option>
-                  <option value="short" selected>短句</option>
+                  <option value="short">短句</option>
                   <option value="normal">稍完整</option>
                 </select>
               </label>
@@ -840,6 +841,7 @@
           return;
         }
         if (!latestResponse || !event.target.matches("[data-reply-text]")) return;
+        resizeReplyInput(event.target);
         const card = event.target.closest("[data-reply-index]");
         const index = Number(card.dataset.replyIndex);
         latestResponse.quality_edited_indexes = [...new Set([...(latestResponse.quality_edited_indexes || []), index])];
@@ -1608,6 +1610,7 @@
         `;
         loadContacts();
         startQualityPolling(data);
+        result.querySelectorAll("[data-reply-text]").forEach(resizeReplyInput);
         if (getBackgroundContext() !== (data.background_context || "").trim()) invalidateTopic();
         result.querySelectorAll("[data-feedback]").forEach(button => { button.disabled = !data.memory_persisted; });
         const pollToken = ++memoryPollToken;
@@ -1978,6 +1981,7 @@
             || qualityLabel(review, reply.text) !== "基本可用") return;
         // Only an explicit click may replace a draft. Polling never writes its value.
         input.value = reply.text;
+        resizeReplyInput(input);
         data.replies[index] = {...reply};
         data.quality_adopted_indexes = [...(data.quality_adopted_indexes || []), index];
         const reason = result.querySelector(`[data-reply-index="${index}"] [data-reply-reason]`);
@@ -2037,6 +2041,14 @@
         refreshQualityUI(data);
       }
 
+      function resizeReplyInput(input) {
+        if (!input?.style || !input.getClientRects().length) return;
+        const scrollTop = input.scrollTop;
+        input.style.height = "auto";
+        input.style.height = `${Math.min(360, Math.max(54, input.scrollHeight + 2))}px`;
+        input.scrollTop = scrollTop;
+      }
+
       function refreshQualityUI(data) {
         if (data !== latestResponse) return;
         const report = data.quality;
@@ -2081,7 +2093,11 @@
         const list = result.querySelector("[data-candidate-list]");
         const notice = result.querySelector("[data-quality-gate-notice]");
         const gated = data.quality_gate_required && !data.quality_gate_released && active;
-        if (list) list.hidden = Boolean(gated);
+        if (list) {
+          const wasHidden = list.hidden;
+          list.hidden = Boolean(gated);
+          if (wasHidden && !list.hidden) result.querySelectorAll("[data-reply-text]").forEach(resizeReplyInput);
+        }
         if (!active) data.quality_gate_released = true;
         if (notice) notice.textContent = gated ? "本轮涉及关系边界或不确定信息，先完成复核再展示候选。" :
           data.quality_gate_required && !report?.passed ? "以下原稿尚未通过完整验证，请先查看具体问题；可用改进版单独列出。" :
@@ -2252,8 +2268,11 @@
         const labels = {analysis: "情绪分析", scenario: "场景判断", "context.load": "上下文读取", "memory.retrieve": "历史检索", "reply.generate": "候选生成", "reply.understand_generate": "理解与生成", "reply.regenerate": "单条重生成", "quality.review": "质量检查", "quality.targeted": "定向检查", "quality.single": "单条质量检查", "memory.enqueue": "记忆任务排队", "memory.contact": "联系人记忆", "memory.summary": "概要保存", "memory.episode": "历史片段保存", "style.learn": "风格学习", "model.text": "文本模型调用", "model.vision": "视觉模型调用"};
         labels["quality.enqueue"] = "提交后台评估";
         labels["quality.background"] = "后台模型评估";
+        labels["tool.reply_skills"] = "读取可选策略";
+        const skills = (diagnostics.reply_skills || []).map(item => `${item.id} (${item.version})`).join("、");
         return `<details><summary>本次生成耗时 ${(diagnostics.total_ms / 1000).toFixed(2)} 秒（不含后台评估）</summary>
           <p class="meta">请求编号：${escapeHtml(diagnostics.request_id)}。模型调用包含在所属步骤内，耗时不可直接相加。</p>
+          <p class="meta">已返回的文本模型请求：${(diagnostics.model_calls || []).length} 次；读取的策略：${escapeHtml(skills || "无")}。</p>
           <ul>${diagnostics.stages.map((item) => `<li>${escapeHtml(item.stage === "tool.weather" ? "MCP 天气查询" : item.stage.endsWith(".round") ? "模型单轮请求" : labels[item.stage] || item.stage)}：${(item.duration_ms / 1000).toFixed(2)} 秒${item.status === "error" ? "（调用异常）" : item.status === "skipped" ? "（未调用模型）" : ""}</li>`).join("")}</ul></details>`;
       }
 
@@ -2348,7 +2367,7 @@
           end_topic: "结束话题",
           ask_clarify: "问清楚",
         };
-        const lengthLabels = { very_short: "很短", short: "短句", normal: "稍完整" };
+        const lengthLabels = { auto: "按内容决定", very_short: "很短", short: "短句", normal: "稍完整" };
         const intimacyLabels = { 1: "克制", 2: "自然", 3: "更亲近" };
         const initiativeLabels = { 1: "只回应", 2: "自然接话", 3: "主动推进" };
         return {

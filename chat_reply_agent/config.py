@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     quality_repair_threshold: int = Field(default=80, ge=1, le=100)
     model_structured_output: Literal["auto", "json_schema", "json_object", "prompt"] = "auto"
     weather_tool_enabled: bool = True
+    reply_skills_enabled: bool = True
     weather_tool_timeout_seconds: float = Field(default=18, ge=3, le=60)
     weather_cache_seconds: int = Field(default=300, ge=0, le=900)
 

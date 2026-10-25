@@ -26,9 +26,6 @@ from chat_reply_agent.schemas import ReplyControls
 from chat_reply_agent.services.weather_contract import weather_evidence_context
 from chat_reply_agent.services.llm_client import ModelCallError
 from chat_reply_agent.services.quality_service import review_and_refine_replies
-from chat_reply_agent.services.reply_service import (
-    AI_SMELL_PHRASES,
-)
 from chat_reply_agent.services.skill_loader import load_relation_skill
 from chat_reply_agent.services.vision_service import extract_chat_from_image
 
@@ -304,7 +301,7 @@ def _score_reply_constraints(
     if len(replies) != 3:
         return 0, [f"候选回复数量应为 3，实际为 {len(replies)}"]
 
-    forbidden = list(dict.fromkeys(AI_SMELL_PHRASES + case.expected.forbidden_phrases))
+    forbidden = list(dict.fromkeys(case.expected.forbidden_phrases))
     total_checks = len(replies) * 3
     passed_checks = 0
     issues: list[str] = []
